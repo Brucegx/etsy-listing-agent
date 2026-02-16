@@ -1,0 +1,111 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "product_data_schema_v1",
+  "title": "Product Data Schema",
+  "description": "统一的产品数据格式，用于 Etsy Listing Batch Generator 和 NanoBanana Batch Generator",
+  "type": "object",
+  "required": ["product_id", "category", "style", "target_audience", "product_path", "basic_info", "images"],
+
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Schema 版本标识",
+      "const": "product_data_schema_v1"
+    },
+
+    "product_id": {
+      "type": "string",
+      "description": "产品编号，如 R001, E002",
+      "pattern": "^[A-Z0-9_-]+$"
+    },
+
+    "category": {
+      "type": "string",
+      "description": "产品类别",
+      "enum": ["rings", "earrings", "necklaces", "bracelets", "pendants"]
+    },
+
+    "shop": {
+      "type": "string",
+      "description": "店铺名称（可选）"
+    },
+
+    "style": {
+      "type": "string",
+      "description": "产品风格",
+      "enum": ["tibetan", "pearl", "zirconia", "moissanite", "vintage", "minimal", "bohemian"]
+    },
+
+    "target_audience": {
+      "type": "string",
+      "description": "目标受众",
+      "enum": ["male", "female", "neutral"]
+    },
+
+    "product_path": {
+      "type": "string",
+      "description": "产品文件夹的绝对路径"
+    },
+
+    "basic_info": {
+      "type": "string",
+      "description": "产品描述（Free text），包含材质、尺寸、特点等"
+    },
+
+    "earring_design_type": {
+      "type": ["string", "null"],
+      "description": "耳环设计类型（仅 category=earrings 时需要）",
+      "enum": ["flat_front", "3d_sculptural", "drop_dangle", null]
+    },
+
+    "images": {
+      "type": "array",
+      "description": "带标签的图片列表",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["filename", "angle", "type", "is_hero"],
+        "properties": {
+          "filename": {
+            "type": "string",
+            "description": "文件名（不含路径）"
+          },
+          "angle": {
+            "type": "string",
+            "description": "拍摄角度",
+            "enum": ["front", "side", "back", "3/4", "top", "bottom"]
+          },
+          "type": {
+            "type": "string",
+            "description": "图片类型",
+            "enum": ["product_only", "wearing", "macro", "with_props", "packaging"]
+          },
+          "is_hero": {
+            "type": "boolean",
+            "description": "是否为主图候选"
+          },
+          "notes": {
+            "type": "string",
+            "description": "补充说明（可选）"
+          }
+        }
+      }
+    }
+  },
+
+  "allOf": [
+    {
+      "if": {
+        "properties": { "category": { "const": "earrings" } }
+      },
+      "then": {
+        "required": ["earring_design_type"],
+        "properties": {
+          "earring_design_type": {
+            "enum": ["flat_front", "3d_sculptural", "drop_dangle"]
+          }
+        }
+      }
+    }
+  ]
+}
