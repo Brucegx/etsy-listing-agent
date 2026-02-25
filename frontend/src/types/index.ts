@@ -33,6 +33,7 @@ export type JobStatus =
   | "failed";
 
 export interface Job {
+  id?: number;
   job_id: string;
   product_id: string;
   category: string;
