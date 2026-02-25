@@ -23,8 +23,10 @@ from app.api.drive import router as drive_router  # noqa: E402
 from app.api.generate import router as generate_router  # noqa: E402
 from app.api.images import router as images_router  # noqa: E402
 from app.api.jobs import router as jobs_router  # noqa: E402
+from app.api.keys import router as keys_router  # noqa: E402
 from app.api.products import router as products_router  # noqa: E402
 from app.api.save import router as save_router  # noqa: E402
+from app.api.v1.generate import router as v1_generate_router  # noqa: E402
 from app.database import init_db  # noqa: E402
 
 
@@ -49,8 +51,10 @@ app.include_router(drive_router)
 app.include_router(generate_router)
 app.include_router(images_router)
 app.include_router(jobs_router)
+app.include_router(keys_router)
 app.include_router(products_router)
 app.include_router(save_router)
+app.include_router(v1_generate_router)
 
 
 @app.get("/api/health")
