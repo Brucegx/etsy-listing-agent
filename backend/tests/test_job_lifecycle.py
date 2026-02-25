@@ -708,7 +708,13 @@ async def test_run_job_marks_failed_on_workflow_error(tmp_path: Path):
     final_db = SessionLocal()
     final_job = svc.get_by_job_id(final_db, job_id)
     assert final_job.status == JOB_STATUS_FAILED
-    assert "LangGraph strategy node crashed" in (final_job.error_message or "")
+    # error_message now stores a user-friendly string (BUG-2 fix).
+    # Raw errors are logged at ERROR level — never stored in the DB.
+    assert final_job.error_message is not None
+    assert len(final_job.error_message) > 0
+    # Must be a friendly message, not a raw error dict
+    assert "{'type': 'error'" not in (final_job.error_message or "")
+    assert "Generation failed" in (final_job.error_message or "")
     final_db.close()
 
 

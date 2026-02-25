@@ -14,6 +14,7 @@ Image generation flow (DEC-006):
     7. Job status advances to ``completed`` with stable image URLs.
 """
 
+import io
 import json
 import logging
 from pathlib import Path
@@ -32,6 +33,184 @@ logger = logging.getLogger(__name__)
 
 _job_service = JobService()
 _workflow_runner: WorkflowRunner | None = None
+
+# Claude API hard limit (5 MB). We target 4 MB to leave a safe margin.
+_CLAUDE_IMAGE_SIZE_LIMIT = 5 * 1024 * 1024  # 5 MB
+_CLAUDE_IMAGE_TARGET = 4 * 1024 * 1024      # 4 MB target after compression
+
+_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+
+
+def _compress_image_for_claude(image_path: Path) -> None:
+    """Resize and/or compress an image file in-place so it fits within Claude's
+    5 MB per-image limit.
+
+    Strategy:
+    1. Skip files already under the target size (no-op, fast path).
+    2. Convert PNG/WebP → JPEG (lossless → lossy is acceptable for analysis).
+    3. Iteratively reduce JPEG quality (85 → 75 → 60) until the file is small
+       enough.  If quality reduction alone is insufficient, halve the dimensions
+       and repeat.
+
+    Only JPEG, PNG, and WebP images are processed.  Other file types are left
+    untouched.
+
+    Args:
+        image_path: Path to the image file on disk.  Modified in place when
+                    compression is applied.
+    """
+    from PIL import Image  # noqa: PLC0415 — imported here to keep module load light
+
+    if image_path.suffix.lower() not in _IMAGE_EXTENSIONS:
+        return
+
+    size = image_path.stat().st_size
+    if size <= _CLAUDE_IMAGE_TARGET:
+        return  # Fast path — already small enough
+
+    logger.info(
+        "Compressing image %s: %.2f MB → target %.2f MB",
+        image_path.name,
+        size / 1024 / 1024,
+        _CLAUDE_IMAGE_TARGET / 1024 / 1024,
+    )
+
+    img = Image.open(image_path)
+    # Convert palette/transparency modes to RGB for JPEG compatibility
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+
+    # Save as JPEG — try progressively lower quality levels first
+    for quality in (85, 75, 60, 45):
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=quality, optimize=True)
+        if buf.tell() <= _CLAUDE_IMAGE_TARGET:
+            # Write compressed bytes back to disk (rename to .jpg if needed)
+            new_path = image_path.with_suffix(".jpg")
+            new_path.write_bytes(buf.getvalue())
+            if new_path != image_path:
+                image_path.unlink()
+            logger.info(
+                "Compressed %s to %.2f MB (quality=%d)",
+                image_path.name,
+                buf.tell() / 1024 / 1024,
+                quality,
+            )
+            return
+
+    # Quality reduction alone wasn't enough — halve the dimensions and retry
+    width, height = img.size
+    scale = 0.5
+    while scale >= 0.125:  # Stop at 12.5% of original size
+        new_w = max(1, int(width * scale))
+        new_h = max(1, int(height * scale))
+        resized = img.resize((new_w, new_h), Image.LANCZOS)
+        buf = io.BytesIO()
+        resized.save(buf, format="JPEG", quality=75, optimize=True)
+        if buf.tell() <= _CLAUDE_IMAGE_TARGET:
+            new_path = image_path.with_suffix(".jpg")
+            new_path.write_bytes(buf.getvalue())
+            if new_path != image_path:
+                image_path.unlink()
+            logger.info(
+                "Compressed %s to %.2f MB (scale=%.2f, quality=75)",
+                image_path.name,
+                buf.tell() / 1024 / 1024,
+                scale,
+            )
+            return
+        scale *= 0.5
+
+    # Last-resort: overwrite at lowest quality / smallest size
+    buf = io.BytesIO()
+    img.resize((max(1, width // 8), max(1, height // 8)), Image.LANCZOS).save(
+        buf, format="JPEG", quality=40, optimize=True
+    )
+    new_path = image_path.with_suffix(".jpg")
+    new_path.write_bytes(buf.getvalue())
+    if new_path != image_path:
+        image_path.unlink()
+    logger.warning(
+        "Could not reach target size for %s; last-resort compressed to %.2f MB",
+        image_path.name,
+        buf.tell() / 1024 / 1024,
+    )
+
+
+def _compress_product_images(
+    product_dir: Path, image_files: list[str]
+) -> list[str]:
+    """Compress all product images in product_dir to fit within Claude's 5 MB limit.
+
+    Returns an updated list of image filenames, reflecting any .jpg renames
+    that happened when PNG/WebP files were converted.
+
+    Args:
+        product_dir: Directory where the image files live.
+        image_files: List of image filenames (relative to product_dir).
+
+    Returns:
+        Updated list of filenames (same order, possibly different extensions).
+    """
+    updated: list[str] = []
+    for fname in image_files:
+        original_path = product_dir / fname
+        if not original_path.exists():
+            updated.append(fname)
+            continue
+
+        _compress_image_for_claude(original_path)
+
+        # If the extension changed (e.g. .png → .jpg), update the filename
+        new_path = original_path.with_suffix(".jpg")
+        if not original_path.exists() and new_path.exists():
+            updated.append(new_path.name)
+        else:
+            updated.append(fname)
+    return updated
+
+
+def _friendly_error_message(exc: Exception) -> str:
+    """Convert a raw exception into a user-friendly error message.
+
+    Raw API error dicts (e.g. ``{'type': 'error', 'error': {...}}``) are never
+    shown to users.  The raw message is logged at ERROR level so developers can
+    investigate.
+
+    Args:
+        exc: The exception raised during job processing.
+
+    Returns:
+        A short, human-readable error string suitable for storing in the DB and
+        displaying in the UI.
+    """
+    raw = str(exc)
+    logger.error("Raw job error: %s", raw)
+
+    # Claude API image-size rejection
+    if "image exceeds" in raw and "maximum" in raw:
+        return "Image too large — please use images under 5 MB and try again."
+    if "invalid_request_error" in raw and ("image" in raw.lower() or "size" in raw.lower()):
+        return "Image too large — please use images under 5 MB and try again."
+
+    # Anthropic / API rate-limit or overload
+    if "overloaded" in raw.lower() or "rate_limit" in raw.lower() or "529" in raw:
+        return "Generation service is temporarily busy — please try again in a moment."
+
+    # Auth / key issues
+    if "authentication_error" in raw or "invalid_api_key" in raw.lower():
+        return "Configuration error — please contact support."
+
+    # Generic transient / timeout
+    if "timeout" in raw.lower() or "timed out" in raw.lower():
+        return "Generation timed out — please try again."
+
+    # Workflow-specific messages we already control
+    if "Workflow error" in raw:
+        return "Generation failed — please try again."
+
+    # Fallback: don't leak the raw dict, but give enough context
+    return "Generation failed — please try again."
 
 
 def _get_workflow_runner() -> WorkflowRunner:
@@ -231,6 +410,10 @@ async def run_job(
         # ----- STRATEGY stage -----
         _job_service.mark_strategy(db, job_id)
 
+        # Compress images BEFORE passing them to the workflow so Claude never
+        # sees files larger than its 5 MB per-image limit (DEC-012 / BUG-1).
+        image_files = _compress_product_images(product_dir, image_files)
+
         runner = _get_workflow_runner()
         state = runner.build_state(
             product_id=product_id,
@@ -301,13 +484,16 @@ async def run_job(
 
     except Exception as exc:
         logger.exception("Job %s failed", job_id)
+        # Convert raw API errors to user-friendly messages (DEC-012 / BUG-2).
+        # _friendly_error_message logs the raw error at ERROR level for devs.
+        friendly_msg = _friendly_error_message(exc)
         try:
-            _job_service.mark_failed(db, job_id, error_message=str(exc))
+            _job_service.mark_failed(db, job_id, error_message=friendly_msg)
         except Exception:
             logger.exception("Could not mark job %s as failed", job_id)
         # --- Send failure email (best-effort) ---
         try:
-            await _notify_job_failed(db, job_id, product_id, error_message=str(exc))
+            await _notify_job_failed(db, job_id, product_id, error_message=friendly_msg)
         except Exception:
             logger.exception("Could not send failure email for job %s", job_id)
     finally:

@@ -1,69 +1,118 @@
 import json as json_module
+import logging
 
 import httpx
 
 DRIVE_API_BASE = "https://www.googleapis.com/drive/v3"
 
+logger = logging.getLogger(__name__)
+
 
 class DriveClient:
-    """Google Drive API wrapper using user's OAuth access token."""
+    """Google Drive API wrapper using user's OAuth access token.
+
+    All requests are authenticated with the bearer token supplied at
+    construction time — results are always scoped to the token owner's Drive
+    so we never accidentally return cached or cross-user data.
+    """
 
     def __init__(self, access_token: str) -> None:
         self.access_token = access_token
-        self._headers = {"Authorization": f"Bearer {access_token}"}
+        self._headers = {
+            "Authorization": f"Bearer {access_token}",
+            # Disable any proxy-layer caching so we always get fresh Drive data
+            "Cache-Control": "no-cache",
+        }
 
     async def _request(self, url: str, params: dict | None = None) -> dict:
         """Make authenticated GET request to Drive API."""
+        logger.debug("Drive API GET %s params=%s", url, params)
         async with httpx.AsyncClient() as client:
             resp = await client.get(url, headers=self._headers, params=params)
+            if not resp.is_success:
+                logger.error(
+                    "Drive API error %s for %s: %s",
+                    resp.status_code,
+                    url,
+                    resp.text[:500],
+                )
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
+            logger.debug("Drive API response keys: %s", list(data.keys()))
+            return data
 
     async def _download(self, file_id: str) -> bytes:
         """Download file content by ID."""
         url = f"{DRIVE_API_BASE}/files/{file_id}"
+        logger.debug("Drive download file_id=%s", file_id)
         async with httpx.AsyncClient() as client:
             resp = await client.get(
                 url,
                 headers=self._headers,
                 params={"alt": "media"},
             )
+            if not resp.is_success:
+                logger.error(
+                    "Drive download error %s for file %s: %s",
+                    resp.status_code,
+                    file_id,
+                    resp.text[:200],
+                )
             resp.raise_for_status()
             return resp.content
 
     async def list_folders(self, parent_id: str | None = None) -> list[dict]:
-        """List folders, optionally filtered to a parent folder.
+        """List folders in the authenticated user's Drive.
+
+        Folders are always filtered to ``'me' in owners`` so we only return
+        folders that belong to the authenticated user — never shared/cached
+        results from other users.
 
         Args:
-            parent_id: If provided, only return folders under this parent.
+            parent_id: If provided, only return folders directly under this
+                       parent.  Otherwise returns top-level folders.
 
         Returns:
             List of folder metadata dicts with id, name, mimeType, modifiedTime.
+            Sorted by most-recently-modified first so the dashboard shows current
+            work at the top.
         """
-        query = "mimeType='application/vnd.google-apps.folder' and trashed=false"
+        # Scope to the token owner's own folders to prevent stale/cross-user data
+        query = (
+            "mimeType='application/vnd.google-apps.folder'"
+            " and trashed=false"
+            " and 'me' in owners"
+        )
         if parent_id:
             query += f" and '{parent_id}' in parents"
+
+        logger.info("list_folders parent_id=%s query=%r", parent_id, query)
 
         data = await self._request(
             f"{DRIVE_API_BASE}/files",
             params={
                 "q": query,
                 "fields": "files(id,name,mimeType,modifiedTime)",
-                "orderBy": "name",
+                # Most-recently-modified first — keeps dashboard current
+                "orderBy": "modifiedTime desc",
                 "pageSize": 100,
             },
         )
-        return data.get("files", [])
+        folders = data.get("files", [])
+        logger.info("list_folders returned %d folders", len(folders))
+        return folders
 
     async def list_files(self, folder_id: str) -> list[dict]:
-        """List all files in a specific folder.
+        """List all files directly inside a specific folder.
 
         Args:
             folder_id: The Google Drive folder ID.
 
         Returns:
             List of file metadata dicts with id, name, mimeType, size, modifiedTime.
+            Sorted alphabetically by name for predictable display order.
         """
+        logger.info("list_files folder_id=%s", folder_id)
         data = await self._request(
             f"{DRIVE_API_BASE}/files",
             params={
@@ -73,7 +122,9 @@ class DriveClient:
                 "pageSize": 200,
             },
         )
-        return data.get("files", [])
+        files = data.get("files", [])
+        logger.info("list_files folder_id=%s returned %d files", folder_id, len(files))
+        return files
 
     async def download_file(self, file_id: str) -> bytes:
         """Download a file's content by ID.
