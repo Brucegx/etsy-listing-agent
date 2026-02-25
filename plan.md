@@ -37,5 +37,5 @@
 - [x] [backend] Add structured logging and error tracking
 - [x] [backend] Add rate limiting per API key and per user
 - [x] [frontend] Add error boundaries and user-friendly error pages
-- [ ] [qa] Run full E2E regression suite, fix flaky tests
-- [ ] [qa] Write load test for concurrent generation requests
+- [x] [qa] Run full E2E regression suite, fix flaky tests
+- [x] [qa] Write load test for concurrent generation requests
