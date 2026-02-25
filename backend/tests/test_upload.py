@@ -2,7 +2,7 @@
 
 import io
 import json
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -65,10 +65,10 @@ def test_upload_requires_size():
 
 
 def test_upload_no_auth_required():
-    """POST /api/generate/upload works without auth cookies."""
+    """POST /api/generate/upload/stream works without auth cookies."""
     # Should not return 401 — it may fail later in workflow, but auth is not checked
     r = client.post(
-        "/api/generate/upload",
+        "/api/generate/upload/stream",
         files=[("images", ("test.png", PNG_BYTES, "image/png"))],
         data={"material": "925 silver", "size": "2cm"},
     )
@@ -79,7 +79,7 @@ def test_upload_no_auth_required():
 
 @patch("app.api.generate._get_workflow_runner")
 def test_upload_streams_sse_events(mock_get_runner):
-    """POST /api/generate/upload streams SSE events through workflow."""
+    """POST /api/generate/upload/stream streams SSE events through workflow."""
     mock_runner = MagicMock()
     mock_get_runner.return_value = mock_runner
 
@@ -100,7 +100,7 @@ def test_upload_streams_sse_events(mock_get_runner):
         }
 
         r = client.post(
-            "/api/generate/upload",
+            "/api/generate/upload/stream",
             files=[
                 ("images", ("photo1.png", PNG_BYTES, "image/png")),
                 ("images", ("photo2.png", PNG_BYTES, "image/png")),
@@ -124,12 +124,10 @@ def test_upload_streams_sse_events(mock_get_runner):
 
 @patch("app.api.generate._get_workflow_runner")
 def test_upload_saves_multiple_images(mock_get_runner):
-    """Uploaded images are saved to the product temp directory."""
+    """Uploaded images are saved to the product temp directory (stream endpoint)."""
     mock_runner = MagicMock()
     mock_get_runner.return_value = mock_runner
     mock_runner.build_state.return_value = {}
-
-    saved_files: list[str] = []
 
     async def fake_run(state, run_id=None):
         yield {"event": "progress", "data": {"stage": "done", "message": "Done"}}
@@ -150,7 +148,7 @@ def test_upload_saves_multiple_images(mock_get_runner):
         mock_read.return_value = {}
 
         r = client.post(
-            "/api/generate/upload",
+            "/api/generate/upload/stream",
             files=[
                 ("images", ("a.png", PNG_BYTES, "image/png")),
                 ("images", ("b.png", PNG_BYTES, "image/png")),
@@ -167,14 +165,14 @@ def test_upload_saves_multiple_images(mock_get_runner):
 
 
 def test_upload_workflow_error_streams_error_event():
-    """If workflow throws, an error SSE event is streamed."""
+    """If workflow throws, an error SSE event is streamed (stream endpoint)."""
     with patch("app.api.generate._get_workflow_runner") as mock_get_runner:
         mock_runner = MagicMock()
         mock_get_runner.return_value = mock_runner
         mock_runner.build_state.side_effect = RuntimeError("Workflow crashed")
 
         r = client.post(
-            "/api/generate/upload",
+            "/api/generate/upload/stream",
             files=[("images", ("test.png", PNG_BYTES, "image/png"))],
             data={"material": "silver", "size": "1cm"},
         )
@@ -184,3 +182,41 @@ def test_upload_workflow_error_streams_error_event():
     error_events = [e for e in events if e["event"] == "error"]
     assert len(error_events) >= 1
     assert error_events[0]["data"]["message"] == "Generation failed. Please try again."
+
+
+def test_upload_async_returns_job_id():
+    """POST /api/generate/upload returns job_id immediately (async endpoint)."""
+    import asyncio
+    from pathlib import Path
+    import tempfile
+
+    with patch("app.api.generate._job_service") as mock_job_svc, \
+         patch("app.api.generate.run_job", new_callable=AsyncMock) as mock_run_job, \
+         patch("app.api.generate.TempManager") as mock_temp_cls, \
+         patch("app.api.generate.get_db") as mock_get_db:
+        # Mock job creation
+        mock_job = MagicMock()
+        mock_job.job_id = "abc123def456"
+        mock_job_svc.create_job.return_value = mock_job
+
+        # Mock temp manager
+        mock_temp = MagicMock()
+        mock_temp_cls.return_value = mock_temp
+        mock_temp.run_id = "test-run"
+        tmp = Path(tempfile.mkdtemp())
+        mock_temp.setup.return_value = tmp
+
+        # Mock get_db
+        mock_db = MagicMock()
+        mock_get_db.return_value = mock_db
+
+        r = client.post(
+            "/api/generate/upload",
+            files=[("images", ("test.png", PNG_BYTES, "image/png"))],
+            data={"material": "silver", "size": "2cm"},
+        )
+
+    assert r.status_code == 200
+    data = r.json()
+    assert "job_id" in data
+    assert data["status"] == "queued"

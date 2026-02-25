@@ -149,7 +149,7 @@ class TestPhase2E2E:
             }
 
             r = client.post(
-                "/api/generate/single",
+                "/api/generate/single/stream",
                 json={
                     "drive_folder_id": "folder_1",
                     "product_id": "R001",

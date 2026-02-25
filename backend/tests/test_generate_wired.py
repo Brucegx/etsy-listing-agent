@@ -55,7 +55,7 @@ def test_generate_requires_auth():
 @patch("app.api.generate._get_workflow_runner")
 @patch("app.api.generate.DriveClient")
 def test_generate_streams_sse_events(MockDriveClient, mock_get_runner):
-    """POST /api/generate/single should stream SSE events through the full flow."""
+    """POST /api/generate/single/stream should stream SSE events through the full flow."""
     # Mock Drive client
     mock_client = AsyncMock()
     MockDriveClient.return_value = mock_client
@@ -90,7 +90,7 @@ def test_generate_streams_sse_events(MockDriveClient, mock_get_runner):
         }
 
         r = client.post(
-            "/api/generate/single",
+            "/api/generate/single/stream",
             json={
                 "drive_folder_id": "folder_abc",
                 "product_id": "R001",

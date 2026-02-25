@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     # Session secret (required: set via SESSION_SECRET env var)
     session_secret: str = ""
 
+    # Persistent storage base path for generated images (DEC-002)
+    # Override via STORAGE_PATH env var; defaults to ./storage next to the DB.
+    storage_path: str = "./storage"
+
     model_config = {"env_file": ".env"}
 
 
