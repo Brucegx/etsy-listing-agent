@@ -6,10 +6,10 @@
 - [x] [backend] Implement async job submission — `POST /api/generate/*` returns `job_id` immediately, queues work in background
 - [x] [backend] Add job status endpoint: `GET /api/jobs/{job_id}` (status, progress, stage name, result URLs when done)
 - [x] [backend] Add job history endpoint: `GET /api/jobs` (list all jobs for authenticated user, with pagination)
-- [ ] [backend] Replace sync Gemini calls with Gemini Batch API — submit all 10 image prompts as one batch, poll for results
-- [ ] [backend] Migrate image serving from ephemeral /tmp to persistent storage with stable URLs
-- [ ] [backend] Add email notification service — send email when job completes (using user's Google email from OAuth)
-- [ ] [qa] Write backend integration tests for job lifecycle (submit → poll → batch complete → retrieve images)
+- [x] [backend] Replace sync Gemini calls with Gemini Batch API — submit all 10 image prompts as one batch, poll for results
+- [x] [backend] Migrate image serving from ephemeral /tmp to persistent storage with stable URLs
+- [x] [backend] Add email notification service — send email when job completes (using user's Google email from OAuth)
+- [x] [qa] Write backend integration tests for job lifecycle (submit → poll → batch complete → retrieve images)
 
 ## Phase 2: Public API
 - [ ] [backend] Design public API schema — API key auth, rate limiting, OpenAPI docs

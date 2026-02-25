@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     # Override via STORAGE_PATH env var; defaults to ./storage next to the DB.
     storage_path: str = "./storage"
 
+    # Email notification (DEC-007)
+    # Use a Gmail App Password (not the account password).
+    # Generate at: https://myaccount.google.com/apppasswords
+    smtp_from_email: str = ""
+    smtp_app_password: str = ""
+
     model_config = {"env_file": ".env"}
 
 
