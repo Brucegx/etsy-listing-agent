@@ -1,399 +1,352 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useAuth } from "@/lib/auth";
 import { useRouter } from "next/navigation";
-import { NavBar } from "@/components/nav-bar";
+import { useEffect, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { API_BASE } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
+import type { GenerateJob } from "@/types";
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+/**
+ * Translates raw error strings into user-friendly messages.
+ * Add patterns here as we discover new failure modes.
+ */
+function friendlyError(raw: string | Record<string, unknown> | null | undefined): string {
+  if (!raw) return "An unknown error occurred.";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+  const msg = typeof raw === "string" ? raw : JSON.stringify(raw);
+  const lower = msg.toLowerCase();
 
-interface JobEntry {
-  id?: number;
-  job_id?: string;
-  product_id: string;
-  category?: string;
-  status: string;
-  progress?: number;
-  stage_name?: string;
-  image_urls?: string[] | null;
-  error_message?: string | null;
-  cost_usd?: number;
-  created_at: string;
+  if (lower.includes("image exceeds") || lower.includes("file size") || lower.includes("too large")) {
+    return "One or more images were too large. Please use images under 5 MB.";
+  }
+  if (lower.includes("no excel") || lower.includes("spreadsheet") || lower.includes("xlsx")) {
+    return "No product spreadsheet found in the Drive folder. Add an Excel or Google Sheets file with product details.";
+  }
+  if (lower.includes("rate limit") || lower.includes("too many requests") || lower.includes("429")) {
+    return "The AI service is temporarily busy. Please wait a moment and try again.";
+  }
+  if (lower.includes("timeout") || lower.includes("timed out")) {
+    return "The generation timed out. Try again — large batches may take longer.";
+  }
+  if (lower.includes("unauthorized") || lower.includes("401") || lower.includes("403")) {
+    return "Your session expired. Please sign in again.";
+  }
+  if (lower.includes("no product") || lower.includes("product not found")) {
+    return "Product not found in the spreadsheet. Check that the product ID matches the spreadsheet rows.";
+  }
+  if (lower.includes("invalid image") || lower.includes("unsupported format") || lower.includes("mime")) {
+    return "One or more files are not valid images. Use JPG, PNG, or WebP files.";
+  }
+  if (lower.includes("network") || lower.includes("connection") || lower.includes("econnrefused")) {
+    return "Network error — the server could not be reached. Check your connection and try again.";
+  }
+
+  // Strip raw Python tracebacks — just show first meaningful line
+  if (msg.includes("Traceback") || msg.includes("Error:")) {
+    const firstLine = msg
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .find((l) => l.includes("Error:") || l.includes("Exception:"));
+    return firstLine
+      ? `Generation failed: ${firstLine.replace(/^.*Error:\s*/, "")}`
+      : "Generation failed due to an internal error. Check server logs.";
+  }
+
+  return msg.length > 200 ? msg.slice(0, 200) + "…" : msg;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function formatDate(iso: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(iso));
-}
-
-function ProgressBar({ value }: { value: number }) {
-  return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-      <div
-        className="h-full rounded-full bg-primary transition-all duration-500"
-        style={{ width: `${Math.min(100, value)}%` }}
-        role="progressbar"
-        aria-valuenow={value}
-        aria-valuemin={0}
-        aria-valuemax={100}
-      />
-    </div>
-  );
-}
-
-// ── Status badge with test-friendly color classes ─────────────────────────────
-
-const STATUS_CLASSES: Record<string, string> = {
-  queued:
-    "bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-400 dark:border-yellow-800",
-  strategy:
-    "bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-400 dark:border-yellow-800",
-  batch_submitted:
-    "bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-400 dark:border-yellow-800",
-  generating:
-    "bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-400 dark:border-yellow-800",
-  completed:
-    "bg-green-100 text-green-700 border-green-200 dark:bg-green-900/40 dark:text-green-400 dark:border-green-800",
-  failed:
-    "bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-900/40 dark:text-rose-400 dark:border-rose-800",
+const STATUS_CONFIG: Record<
+  GenerateJob["status"],
+  { label: string; color: string; dot: string }
+> = {
+  pending: {
+    label: "Pending",
+    color: "text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-950/40 border-yellow-200 dark:border-yellow-800",
+    dot: "bg-yellow-400",
+  },
+  running: {
+    label: "Running",
+    color: "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800",
+    dot: "bg-blue-400 animate-pulse",
+  },
+  completed: {
+    label: "Completed",
+    color: "text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/40 border-green-200 dark:border-green-800",
+    dot: "bg-green-400",
+  },
+  failed: {
+    label: "Failed",
+    color: "text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800",
+    dot: "bg-red-400",
+  },
 };
 
-function InlineStatusBadge({
-  status,
-  testId,
-}: {
-  status: string;
-  testId: string;
-}) {
-  const classes =
-    STATUS_CLASSES[status] ??
-    "bg-muted text-muted-foreground border-border";
+function StatusBadge({ status }: { status: GenerateJob["status"] }) {
+  const cfg = STATUS_CONFIG[status];
   return (
     <span
-      data-testid={testId}
-      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${classes}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${cfg.color}`}
     >
-      {status}
+      <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
+      {cfg.label}
     </span>
   );
 }
 
-// ── Job row ───────────────────────────────────────────────────────────────────
-
-interface JobRowProps {
-  job: JobEntry;
-  onRefresh: () => void;
+function formatDate(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(iso));
+  } catch {
+    return iso;
+  }
 }
 
-function JobRow({ job }: JobRowProps) {
-  const jobKey = job.id ?? job.job_id ?? job.product_id;
-  const firstImage = job.image_urls?.[0];
-
-  return (
-    <div
-      data-testid={`job-item-${jobKey}`}
-      className="flex items-center gap-4 rounded-xl border border-border/60 bg-card p-4 shadow-sm transition-shadow hover:shadow-md"
-    >
-      {/* Thumbnail */}
-      <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-border/40 bg-muted">
-        {firstImage ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={`${API_BASE}${firstImage}`}
-            alt={`Thumbnail for ${job.product_id}`}
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-lg text-muted-foreground">
-            {job.status === "completed" ? "✓" : "·"}
-          </div>
-        )}
-      </div>
-
-      {/* Main info */}
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="max-w-xs truncate font-medium text-foreground">
-            {job.product_id}
-          </span>
-          <InlineStatusBadge
-            status={job.status}
-            testId={`job-status-${jobKey}`}
-          />
-        </div>
-
-        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-          {job.category && <span className="capitalize">{job.category}</span>}
-          <span>{formatDate(job.created_at)}</span>
-          {job.cost_usd != null && job.cost_usd > 0 && (
-            <span>${job.cost_usd.toFixed(3)}</span>
-          )}
-        </div>
-
-        {/* Progress bar for in-flight jobs */}
-        {["strategy", "batch_submitted", "generating"].includes(job.status) &&
-          job.progress != null && (
-            <div className="mt-2 space-y-1">
-              <ProgressBar value={job.progress} />
-              <p className="text-xs text-muted-foreground">
-                {job.stage_name} — {job.progress}%
-              </p>
-            </div>
-          )}
-
-        {/* Error message */}
-        {job.status === "failed" && job.error_message && (
-          <p className="mt-1 truncate text-xs text-destructive">
-            {job.error_message}
-          </p>
-        )}
-      </div>
-
-      {/* Actions */}
-      {job.status === "completed" &&
-        job.image_urls &&
-        job.image_urls.length > 0 && (
-          <div className="shrink-0">
-            <a
-              href={`${BACKEND_URL}${job.image_urls[0]}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={`Download images for ${job.product_id}`}
-            >
-              <Button variant="outline" size="sm">
-                Download
-              </Button>
-            </a>
-          </div>
-        )}
-    </div>
-  );
+interface JobWithError extends GenerateJob {
+  error?: string | Record<string, unknown> | null;
 }
-
-// ── Empty state ───────────────────────────────────────────────────────────────
-
-function EmptyState({ onUpload }: { onUpload: () => void }) {
-  return (
-    <div
-      data-testid="jobs-empty"
-      className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/60 bg-muted/20 px-6 py-16 text-center"
-    >
-      <span className="mb-3 text-4xl" role="img" aria-label="">
-        📷
-      </span>
-      <h3 className="font-semibold text-foreground">No jobs yet</h3>
-      <p className="mt-1 max-w-xs text-sm text-muted-foreground">
-        Generate your first listing from the home page or your Google Drive
-        dashboard.
-      </p>
-      <Button
-        variant="outline"
-        size="sm"
-        className="mt-4"
-        onClick={onUpload}
-      >
-        Upload Product
-      </Button>
-    </div>
-  );
-}
-
-// ── Skeleton rows ─────────────────────────────────────────────────────────────
-
-function SkeletonRow() {
-  return (
-    <div className="flex items-center gap-4 rounded-xl border border-border/60 bg-card p-4">
-      <Skeleton className="h-14 w-14 rounded-lg" />
-      <div className="flex-1 space-y-2">
-        <Skeleton className="h-4 w-40" />
-        <Skeleton className="h-3 w-28" />
-      </div>
-    </div>
-  );
-}
-
-// ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function JobsPage() {
-  const { isAuthenticated, loading: authLoading } = useAuth();
+  const { loading, isAuthenticated } = useAuth();
   const router = useRouter();
+  const [jobs, setJobs] = useState<JobWithError[]>([]);
+  const [jobsLoading, setJobsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [expandedErrors, setExpandedErrors] = useState<Set<number>>(new Set());
 
-  const [jobs, setJobs] = useState<JobEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [total, setTotal] = useState(0);
-
-  const fetchJobs = useCallback(
-    async (p: number) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch(
-          `${BACKEND_URL}/api/jobs?page=${p}&page_size=20`,
-          { credentials: "include" }
-        );
-        if (!res.ok) {
-          throw new Error("Failed to fetch jobs");
-        }
-        const data = await res.json();
-        // Handle both plain array (mock) and paginated response (real backend)
-        if (Array.isArray(data)) {
-          setJobs(data);
-          setTotal(data.length);
-          setTotalPages(1);
-        } else {
-          setJobs(data.jobs ?? []);
-          setTotal(data.total ?? 0);
-          setTotalPages(data.total_pages ?? 1);
-        }
-      } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Failed to fetch jobs"
-        );
-      } finally {
-        setLoading(false);
-      }
-    },
-    []
-  );
-
-  // Redirect unauthenticated users
   useEffect(() => {
-    if (!authLoading && !isAuthenticated) {
+    if (!loading && !isAuthenticated) {
       router.push("/");
     }
-  }, [authLoading, isAuthenticated, router]);
+  }, [loading, isAuthenticated, router]);
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      fetchJobs(page);
+  const fetchJobs = useCallback(async () => {
+    setJobsLoading(true);
+    setFetchError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/jobs`, {
+        credentials: "include",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setJobs(data.jobs ?? []);
+      } else if (res.status === 404) {
+        setJobs([]);
+      } else {
+        setFetchError("Failed to load jobs. Please try again.");
+      }
+    } catch {
+      setFetchError("Network error — could not reach the server.");
+    } finally {
+      setJobsLoading(false);
     }
-  }, [isAuthenticated, page, fetchJobs]);
+  }, []);
 
-  // Auto-refresh in-flight jobs every 8 seconds
   useEffect(() => {
-    const hasActive = jobs.some((j) =>
-      ["queued", "strategy", "batch_submitted", "generating"].includes(j.status)
-    );
-    if (!hasActive) return;
-    const interval = setInterval(() => fetchJobs(page), 8000);
-    return () => clearInterval(interval);
-  }, [jobs, page, fetchJobs]);
+    if (isAuthenticated) fetchJobs();
+  }, [isAuthenticated, fetchJobs]);
 
-  const handleRefresh = () => fetchJobs(page);
-  const handleUpload = () => router.push("/");
+  const toggleError = (id: number) => {
+    setExpandedErrors((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <p className="text-sm text-muted-foreground">Loading...</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-background">
-      <NavBar />
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+      <header className="border-b bg-white dark:bg-gray-900">
+        <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-2">
+            <a
+              href="/"
+              className="rounded-md p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              aria-label="Back to home"
+            >
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"
+                />
+              </svg>
+            </a>
+            <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              Jobs
+            </h1>
+          </div>
+          <Button size="sm" variant="outline" onClick={fetchJobs} disabled={jobsLoading}>
+            <svg
+              className={`h-3.5 w-3.5 mr-1.5 ${jobsLoading ? "animate-spin" : ""}`}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"
+              />
+            </svg>
+            Refresh
+          </Button>
+        </div>
+      </header>
 
-      <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
-        {/* Header */}
-        <div className="mb-6 flex items-center justify-between">
+      <main className="mx-auto max-w-4xl px-4 py-8 space-y-6">
+        <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Jobs</h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              Track the status of your product listing generation jobs
+            <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">
+              Generation Jobs
+            </h2>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Track the status of your listing generation runs.
             </p>
           </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => router.push("/dashboard")}
-            >
-              Dashboard
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleRefresh}
-              disabled={loading}
-            >
-              {loading ? "Refreshing…" : "Refresh"}
-            </Button>
-          </div>
+          {!jobsLoading && jobs.length > 0 && (
+            <span className="text-sm text-muted-foreground">
+              {jobs.length} job{jobs.length !== 1 ? "s" : ""}
+            </span>
+          )}
         </div>
 
-        {/* Count */}
-        {!loading && !error && total > 0 && (
-          <p className="mb-4 text-sm text-muted-foreground">
-            {total} job{total !== 1 ? "s" : ""}
-          </p>
-        )}
-
-        {/* Error */}
-        {error && (
-          <div
-            data-testid="jobs-error"
-            className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 p-4"
-          >
-            <p className="text-sm text-destructive">{error}</p>
+        {fetchError && (
+          <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/40 p-4 flex items-start gap-3">
+            <svg
+              className="h-5 w-5 text-red-500 shrink-0 mt-0.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"
+              />
+            </svg>
+            <p className="text-sm text-red-700 dark:text-red-400">{fetchError}</p>
           </div>
         )}
 
-        {/* Content */}
-        {loading && jobs.length === 0 ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <SkeletonRow key={i} />
-            ))}
-          </div>
-        ) : !error && jobs.length === 0 ? (
-          <EmptyState onUpload={handleUpload} />
-        ) : (
-          <>
-            <ul data-testid="jobs-list" className="space-y-3">
-              {jobs.map((job) => (
-                <li key={job.id ?? job.job_id ?? job.product_id}>
-                  <JobRow job={job} onRefresh={handleRefresh} />
-                </li>
-              ))}
-            </ul>
-
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="mt-6 flex items-center justify-between text-sm text-muted-foreground">
-                <span>
-                  Page {page} of {totalPages}
-                </span>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      setPage((p) => Math.min(totalPages, p + 1))
-                    }
-                    disabled={page === totalPages}
-                  >
-                    Next
-                  </Button>
-                </div>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">All Jobs</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {jobsLoading ? (
+              <div className="space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-16 w-full" />
+                ))}
               </div>
+            ) : jobs.length === 0 ? (
+              <div className="py-12 text-center space-y-2">
+                <svg
+                  className="mx-auto h-10 w-10 text-gray-300 dark:text-gray-700"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1}
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0ZM3.75 12h.007v.008H3.75V12Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm-.375 5.25h.007v.008H3.75v-.008Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"
+                  />
+                </svg>
+                <p className="text-sm text-muted-foreground">No jobs yet.</p>
+                <p className="text-xs text-muted-foreground">
+                  Jobs appear here after you run a generation from the Drive
+                  dashboard.
+                </p>
+              </div>
+            ) : (
+              <ul className="space-y-3">
+                {jobs.map((job) => {
+                  const errorMsg = job.status === "failed" ? friendlyError(job.error) : null;
+                  const isExpanded = expandedErrors.has(job.id);
+
+                  return (
+                    <li
+                      key={job.id}
+                      className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-3 space-y-2"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0 space-y-0.5">
+                          <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                            {job.product_id}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {job.category && (
+                              <span className="mr-2 rounded bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 font-mono">
+                                {job.category}
+                              </span>
+                            )}
+                            {formatDate(job.created_at)}
+                            {job.cost_usd > 0 && (
+                              <span className="ml-2">&middot; ${job.cost_usd.toFixed(3)}</span>
+                            )}
+                          </p>
+                        </div>
+                        <StatusBadge status={job.status} />
+                      </div>
+
+                      {/* Friendly error message for failed jobs */}
+                      {job.status === "failed" && errorMsg && (
+                        <div className="rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 px-3 py-2 space-y-1">
+                          <p className="text-xs text-red-700 dark:text-red-400">
+                            {errorMsg}
+                          </p>
+                          {job.error && (
+                            <button
+                              className="text-xs text-red-500 dark:text-red-500 underline hover:no-underline"
+                              onClick={() => toggleError(job.id)}
+                            >
+                              {isExpanded ? "Hide raw error" : "Show raw error"}
+                            </button>
+                          )}
+                          {isExpanded && job.error && (
+                            <pre className="mt-2 whitespace-pre-wrap break-all text-xs text-red-600 dark:text-red-400 font-mono max-h-32 overflow-y-auto">
+                              {typeof job.error === "string"
+                                ? job.error
+                                : JSON.stringify(job.error, null, 2)}
+                            </pre>
+                          )}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
             )}
-          </>
-        )}
+          </CardContent>
+        </Card>
       </main>
     </div>
   );

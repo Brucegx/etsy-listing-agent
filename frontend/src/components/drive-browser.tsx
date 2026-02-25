@@ -9,9 +9,10 @@ import type { DriveFolder } from "@/types";
 
 interface DriveBrowserProps {
   onFolderSelect: (folder: DriveFolder) => void;
+  onSessionExpired?: () => void;
 }
 
-export function DriveBrowser({ onFolderSelect }: DriveBrowserProps) {
+export function DriveBrowser({ onFolderSelect, onSessionExpired }: DriveBrowserProps) {
   const [folders, setFolders] = useState<DriveFolder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -28,14 +29,33 @@ export function DriveBrowser({ onFolderSelect }: DriveBrowserProps) {
       const data = await api.drive.listFolders(parentId || undefined);
       setFolders(data.folders);
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to load folders";
-      setError(message);
+      const isSessionErr =
+        err instanceof Error &&
+        (() => {
+          const msg = err.message.toLowerCase();
+          return (
+            msg.includes("401") ||
+            msg.includes("invalid credentials") ||
+            msg.includes("token has been expired") ||
+            msg.includes("token expired") ||
+            msg.includes("unauthorized") ||
+            msg.includes("access token")
+          );
+        })();
+
+      if (isSessionErr && onSessionExpired) {
+        onSessionExpired();
+        setError(null);
+      } else {
+        const message =
+          err instanceof Error ? err.message : "Failed to load folders";
+        setError(message);
+      }
       setFolders([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [onSessionExpired]);
 
   useEffect(() => {
     loadFolders(currentParent);
