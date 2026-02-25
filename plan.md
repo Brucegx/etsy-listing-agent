@@ -27,15 +27,15 @@
 - [x] [frontend] Improve generation flow — show stage name + progress %, "we'll email you when done" messaging
 - [x] [frontend] Polish Google Drive integration — better folder picker, preview images before generating
 - [x] [frontend] Add responsive design and mobile support
-- [ ] [qa] Set up Playwright test infrastructure (config, fixtures, helpers)
-- [ ] [qa] Write E2E tests: upload flow (upload images → submit → see job in dashboard → results ready)
-- [ ] [qa] Write E2E tests: Drive flow (login → browse → select product → generate → check dashboard)
-- [ ] [qa] Write E2E tests: API key management (create, copy, revoke)
+- [x] [qa] Set up Playwright test infrastructure (config, fixtures, helpers)
+- [x] [qa] Write E2E tests: upload flow (upload images → submit → see job in dashboard → results ready)
+- [x] [qa] Write E2E tests: Drive flow (login → browse → select product → generate → check dashboard)
+- [x] [qa] Write E2E tests: API key management (create, copy, revoke)
 
 ## Phase 4: Production Readiness
-- [ ] [backend] Add Dockerfile and docker-compose.yml (backend + frontend + DB)
-- [ ] [backend] Add structured logging and error tracking
-- [ ] [backend] Add rate limiting per API key and per user
-- [ ] [frontend] Add error boundaries and user-friendly error pages
+- [x] [backend] Add Dockerfile and docker-compose.yml (backend + frontend + DB)
+- [x] [backend] Add structured logging and error tracking
+- [x] [backend] Add rate limiting per API key and per user
+- [x] [frontend] Add error boundaries and user-friendly error pages
 - [ ] [qa] Run full E2E regression suite, fix flaky tests
 - [ ] [qa] Write load test for concurrent generation requests

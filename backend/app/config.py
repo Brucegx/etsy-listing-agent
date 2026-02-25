@@ -33,6 +33,14 @@ class Settings(BaseSettings):
     smtp_from_email: str = ""
     smtp_app_password: str = ""
 
+    # Logging
+    log_level: str = "INFO"
+
+    # Rate limiting (requests per 60-second window)
+    rate_limit_api_key_rpm: int = 60
+    rate_limit_user_rpm: int = 30
+    rate_limit_anon_rpm: int = 10
+
     model_config = {"env_file": ".env"}
 
 

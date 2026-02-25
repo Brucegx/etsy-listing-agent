@@ -1,0 +1,85 @@
+version: "3.9"
+
+# ── Etsy Listing Agent — multi-service stack ────────────────────────────────
+#
+# Services
+#   backend   FastAPI (Python 3.11 + uv)   → http://localhost:8000
+#   frontend  Next.js 15 (Node 20)         → http://localhost:3000
+#
+# Volumes
+#   db-data       SQLite database file
+#   storage-data  Generated images (DEC-002)
+#
+# Usage
+#   cp .env.example .env          # fill in secrets
+#   docker-compose up --build -d
+#   docker-compose logs -f
+
+services:
+  backend:
+    build:
+      context: .                   # repo root — needed to access src/ engine
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persistent SQLite DB
+      - db-data:/data
+      # Persistent image storage (DEC-002)
+      - storage-data:/data/storage
+    environment:
+      # ── required secrets (set in .env) ──────────────────────────────────
+      SESSION_SECRET: ${SESSION_SECRET}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
+      SMTP_APP_PASSWORD: ${SMTP_APP_PASSWORD:-}
+      # ── infrastructure ──────────────────────────────────────────────────
+      DATABASE_URL: "sqlite:////data/etsy_agent.db"
+      STORAGE_PATH: "/data/storage"
+      FRONTEND_URL: "http://localhost:3000"
+      GOOGLE_REDIRECT_URI: "http://localhost:8000/api/auth/callback"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # ── rate limiting (Task 3) ───────────────────────────────────────────
+      RATE_LIMIT_API_KEY_RPM: ${RATE_LIMIT_API_KEY_RPM:-60}
+      RATE_LIMIT_USER_RPM: ${RATE_LIMIT_USER_RPM:-30}
+      RATE_LIMIT_ANON_RPM: ${RATE_LIMIT_ANON_RPM:-10}
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE: "http://localhost:8000"
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_BASE: "http://localhost:8000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+volumes:
+  db-data:
+    driver: local
+  storage-data:
+    driver: local
