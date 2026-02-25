@@ -7,11 +7,24 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { API_BASE } from "@/lib/api";
-import type { GenerateJob } from "@/types";
+/** Shape returned by GET /api/jobs → jobs[] */
+interface ApiJob {
+  job_id: string;
+  product_id: string;
+  category: string;
+  status: string;
+  progress: number;
+  stage_name: string;
+  image_urls: string[] | null;
+  result: Record<string, unknown> | null;
+  error_message: string | null;
+  cost_usd: number;
+  created_at: string;
+  updated_at: string;
+}
 
 /**
  * Translates raw error strings into user-friendly messages.
- * Add patterns here as we discover new failure modes.
  */
 function friendlyError(raw: string | Record<string, unknown> | null | undefined): string {
   if (!raw) return "An unknown error occurred.";
@@ -59,17 +72,24 @@ function friendlyError(raw: string | Record<string, unknown> | null | undefined)
   return msg.length > 200 ? msg.slice(0, 200) + "…" : msg;
 }
 
-const STATUS_CONFIG: Record<
-  GenerateJob["status"],
-  { label: string; color: string; dot: string }
-> = {
-  pending: {
-    label: "Pending",
+const STATUS_CONFIG: Record<string, { label: string; color: string; dot: string }> = {
+  queued: {
+    label: "Queued",
     color: "text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-950/40 border-yellow-200 dark:border-yellow-800",
     dot: "bg-yellow-400",
   },
-  running: {
-    label: "Running",
+  strategy: {
+    label: "Analyzing",
+    color: "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800",
+    dot: "bg-blue-400 animate-pulse",
+  },
+  batch_submitted: {
+    label: "Generating",
+    color: "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800",
+    dot: "bg-blue-400 animate-pulse",
+  },
+  generating: {
+    label: "Generating",
     color: "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800",
     dot: "bg-blue-400 animate-pulse",
   },
@@ -85,8 +105,14 @@ const STATUS_CONFIG: Record<
   },
 };
 
-function StatusBadge({ status }: { status: GenerateJob["status"] }) {
-  const cfg = STATUS_CONFIG[status];
+const FALLBACK_STATUS = {
+  label: "Processing",
+  color: "text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-950/40 border-gray-200 dark:border-gray-800",
+  dot: "bg-gray-400 animate-pulse",
+};
+
+function StatusBadge({ status }: { status: string }) {
+  const cfg = STATUS_CONFIG[status] ?? FALLBACK_STATUS;
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${cfg.color}`}
@@ -110,17 +136,13 @@ function formatDate(iso: string): string {
   }
 }
 
-interface JobWithError extends GenerateJob {
-  error?: string | Record<string, unknown> | null;
-}
-
 export default function JobsPage() {
   const { loading, isAuthenticated } = useAuth();
   const router = useRouter();
-  const [jobs, setJobs] = useState<JobWithError[]>([]);
+  const [jobs, setJobs] = useState<ApiJob[]>([]);
   const [jobsLoading, setJobsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [expandedErrors, setExpandedErrors] = useState<Set<number>>(new Set());
+  const [expandedErrors, setExpandedErrors] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!loading && !isAuthenticated) {
@@ -154,7 +176,7 @@ export default function JobsPage() {
     if (isAuthenticated) fetchJobs();
   }, [isAuthenticated, fetchJobs]);
 
-  const toggleError = (id: number) => {
+  const toggleError = (id: string) => {
     setExpandedErrors((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -289,12 +311,12 @@ export default function JobsPage() {
             ) : (
               <ul className="space-y-3">
                 {jobs.map((job) => {
-                  const errorMsg = job.status === "failed" ? friendlyError(job.error) : null;
-                  const isExpanded = expandedErrors.has(job.id);
+                  const errorMsg = job.status === "failed" ? friendlyError(job.error_message) : null;
+                  const isExpanded = expandedErrors.has(job.job_id);
 
                   return (
                     <li
-                      key={job.id}
+                      key={job.job_id}
                       className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-3 space-y-2"
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -317,25 +339,41 @@ export default function JobsPage() {
                         <StatusBadge status={job.status} />
                       </div>
 
+                      {/* Progress bar for in-flight jobs */}
+                      {job.progress > 0 && job.progress < 100 && (
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-xs text-muted-foreground">
+                            <span>{job.stage_name}</span>
+                            <span>{job.progress}%</span>
+                          </div>
+                          <div className="h-1.5 rounded-full bg-gray-200 dark:bg-gray-700">
+                            <div
+                              className="h-1.5 rounded-full bg-blue-500 transition-all"
+                              style={{ width: `${job.progress}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
                       {/* Friendly error message for failed jobs */}
                       {job.status === "failed" && errorMsg && (
                         <div className="rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 px-3 py-2 space-y-1">
                           <p className="text-xs text-red-700 dark:text-red-400">
                             {errorMsg}
                           </p>
-                          {job.error && (
+                          {job.error_message && (
                             <button
                               className="text-xs text-red-500 dark:text-red-500 underline hover:no-underline"
-                              onClick={() => toggleError(job.id)}
+                              onClick={() => toggleError(job.job_id)}
                             >
                               {isExpanded ? "Hide raw error" : "Show raw error"}
                             </button>
                           )}
-                          {isExpanded && job.error && (
+                          {isExpanded && job.error_message && (
                             <pre className="mt-2 whitespace-pre-wrap break-all text-xs text-red-600 dark:text-red-400 font-mono max-h-32 overflow-y-auto">
-                              {typeof job.error === "string"
-                                ? job.error
-                                : JSON.stringify(job.error, null, 2)}
+                              {typeof job.error_message === "string"
+                                ? job.error_message
+                                : JSON.stringify(job.error_message, null, 2)}
                             </pre>
                           )}
                         </div>
