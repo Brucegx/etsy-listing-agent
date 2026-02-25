@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -50,6 +50,14 @@ const STEPS = [
   { step: "03", title: "Images generated", desc: "Gemini renders professional photos for each direction." },
   { step: "04", title: "Listing created", desc: "SEO-rich title, description, and tags — ready to paste." },
 ];
+
+/** How long (ms) the "Job submitted" button stays disabled after a successful submit */
+const POST_SUBMIT_LOCK_MS = 5000;
+
+interface SubmitBanner {
+  type: "success" | "error";
+  message: string;
+}
 
 // ── Landing hero (unauthenticated) ──────────────────────────────────────────
 
@@ -186,6 +194,12 @@ function UploadTool() {
   const [strategy, setStrategy] = useState<ImageStrategy | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // P0 submit feedback state
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitBanner, setSubmitBanner] = useState<SubmitBanner | null>(null);
+  const [postSubmitLocked, setPostSubmitLocked] = useState(false);
+  const postSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const handleEvent = useCallback((event: SSEEvent) => {
     if (event.event === "strategy_complete") {
       setStrategy(event.data.strategy);
@@ -213,26 +227,72 @@ function UploadTool() {
   const { events, isRunning, start, stop } = useSSE({
     onEvent: handleEvent,
     onComplete: handleComplete,
-    onError: (msg) => setError(msg),
+    onError: (msg) => {
+      setError(msg);
+      setSubmitBanner({ type: "error", message: msg });
+    },
   });
 
-  const canGenerate = files.length > 0 && material.trim() !== "" && size.trim() !== "";
+  const canGenerate =
+    files.length > 0 &&
+    material.trim() !== "" &&
+    size.trim() !== "" &&
+    !isSubmitting &&
+    !postSubmitLocked;
 
-  const handleGenerate = useCallback(() => {
+  const handleGenerate = useCallback(async () => {
+    if (isSubmitting || postSubmitLocked) return;
+
+    // Reset state
     setResults(null);
     setGeneratedImages([]);
     setImageProgress({ total: 10, completed: 0 });
     setPromptProgress({ total: 10, completed: 0 });
     setStrategy(null);
     setError(null);
-    const formData = new FormData();
-    for (const file of files) formData.append("images", file);
-    formData.append("material", material.trim());
-    formData.append("size", size.trim());
-    start("/api/generate/upload", formData);
-  }, [files, material, size, start]);
+    setSubmitBanner(null);
+    setIsSubmitting(true);
+
+    try {
+      const formData = new FormData();
+      for (const file of files) formData.append("images", file);
+      formData.append("material", material.trim());
+      formData.append("size", size.trim());
+
+      // Start the SSE stream — this internally does the POST and streams results.
+      // We do a quick pre-flight check: if the fetch immediately fails (non-2xx),
+      // use-sse calls onError. We show a success banner right after start() begins
+      // (before stream completes) so the user knows the job was accepted.
+      start("/api/generate/upload", formData);
+
+      // Show success banner immediately after the request is accepted.
+      // The stream continues in the background.
+      setSubmitBanner({
+        type: "success",
+        message: "Job created! Track progress in Jobs →",
+      });
+
+      // Lock the button for POST_SUBMIT_LOCK_MS to prevent duplicate submissions.
+      setPostSubmitLocked(true);
+      if (postSubmitTimerRef.current) clearTimeout(postSubmitTimerRef.current);
+      postSubmitTimerRef.current = setTimeout(() => {
+        setPostSubmitLocked(false);
+      }, POST_SUBMIT_LOCK_MS);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to submit job";
+      setSubmitBanner({ type: "error", message: msg });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [files, material, size, start, isSubmitting, postSubmitLocked]);
 
   const hasResults = results?.listing || generatedImages.length > 0 || strategy;
+
+  const generateButtonLabel = isSubmitting
+    ? "Submitting…"
+    : postSubmitLocked
+    ? "Job Submitted"
+    : "Generate listing";
 
   const inputClass =
     "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50";
@@ -286,16 +346,75 @@ function UploadTool() {
                   Stop
                 </Button>
               ) : (
-                <Button onClick={handleGenerate} disabled={!canGenerate} size="lg">
-                  Generate listing
+                <Button
+                  onClick={handleGenerate}
+                  disabled={!canGenerate}
+                  size="lg"
+                  aria-busy={isSubmitting}
+                >
+                  {isSubmitting && (
+                    <svg
+                      className="mr-2 h-4 w-4 animate-spin"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                      />
+                    </svg>
+                  )}
+                  {generateButtonLabel}
                 </Button>
               )}
-              {!canGenerate && !isRunning && (
+              {!canGenerate && !isRunning && !isSubmitting && !postSubmitLocked && (
                 <p className="text-xs text-muted-foreground">
                   Upload at least one image and fill in material + size.
                 </p>
               )}
             </div>
+
+            {/* Submit feedback banner */}
+            {submitBanner && (
+              <div
+                role="status"
+                aria-live="polite"
+                className={`flex items-center justify-between rounded-lg border px-4 py-3 text-sm ${
+                  submitBanner.type === "success"
+                    ? "border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300"
+                    : "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-400"
+                }`}
+              >
+                <span>{submitBanner.message}</span>
+                {submitBanner.type === "success" && (
+                  <a
+                    href="/jobs"
+                    className="ml-4 shrink-0 font-medium underline underline-offset-2 hover:no-underline"
+                  >
+                    Go to Jobs
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setSubmitBanner(null)}
+                  className="ml-4 shrink-0 text-current opacity-60 hover:opacity-100"
+                  aria-label="Dismiss"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
 
             {isRunning && (
               <p className="rounded-lg border border-border/60 bg-accent/30 px-4 py-2.5 text-sm text-muted-foreground">

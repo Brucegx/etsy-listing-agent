@@ -13,6 +13,7 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
+  { label: "Home", href: "/" },
   { label: "Dashboard", href: "/dashboard" },
   { label: "Jobs", href: "/jobs" },
   { label: "API Keys", href: "/keys" },
@@ -61,7 +62,7 @@ export function NavBar() {
                 href={item.href}
                 className={cn(
                   "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                  pathname === item.href || pathname.startsWith(item.href + "/")
+                  pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href + "/"))
                     ? "bg-accent text-accent-foreground"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}
