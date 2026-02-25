@@ -24,6 +24,59 @@ export interface Product {
   [key: string]: unknown;
 }
 
+export type JobStatus =
+  | "queued"
+  | "strategy"
+  | "batch_submitted"
+  | "generating"
+  | "completed"
+  | "failed";
+
+export interface Job {
+  job_id: string;
+  product_id: string;
+  category: string;
+  status: JobStatus;
+  progress: number;
+  stage_name: string;
+  image_urls: string[] | null;
+  result: Record<string, unknown> | null;
+  error_message: string | null;
+  cost_usd: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JobListResponse {
+  jobs: Job[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface ApiKey {
+  id: number;
+  name: string;
+  rate_limit_rpm: number;
+  revoked: boolean;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+export interface ApiKeyCreated {
+  id: number;
+  name: string;
+  raw_key: string;
+  rate_limit_rpm: number;
+  created_at: string;
+}
+
+export interface ApiKeyListResponse {
+  keys: ApiKey[];
+}
+
+/** Legacy — kept for backwards compat with existing components */
 export interface GenerateJob {
   id: number;
   product_id: string;

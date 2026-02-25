@@ -1,4 +1,11 @@
-import type { DriveFolder, DriveFile } from "@/types";
+import type {
+  DriveFolder,
+  DriveFile,
+  Job,
+  JobListResponse,
+  ApiKeyListResponse,
+  ApiKeyCreated,
+} from "@/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -50,6 +57,24 @@ export const api = {
           body: JSON.stringify(data),
         }
       ),
+  },
+  jobs: {
+    list: (page = 1, pageSize = 20) =>
+      fetchAPI<JobListResponse>(`/api/jobs?page=${page}&page_size=${pageSize}`),
+    get: (jobId: string) => fetchAPI<Job>(`/api/jobs/${jobId}`),
+  },
+  keys: {
+    list: () => fetchAPI<ApiKeyListResponse>("/api/keys"),
+    create: (name: string, rateLimitRpm = 60) =>
+      fetchAPI<ApiKeyCreated>("/api/keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, rate_limit_rpm: rateLimitRpm }),
+      }),
+    revoke: (keyId: number) =>
+      fetchAPI<{ id: number; revoked: boolean; message: string }>(`/api/keys/${keyId}`, {
+        method: "DELETE",
+      }),
   },
 };
 
