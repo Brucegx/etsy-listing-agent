@@ -152,6 +152,44 @@ class JobService:
         """Fetch a job by its public job_id UUID string."""
         return db.query(Job).filter(Job.job_id == job_id).first()
 
+    def delete_job(self, db: Session, job_id: str, user_id: int) -> bool:
+        """Delete a job record if it belongs to the user and is in a terminal state.
+
+        A job may only be deleted when its status is ``completed`` or ``failed``.
+        Active jobs (queued / strategy / generating) are intentionally protected
+        so that in-flight workers are not left orphaned.
+
+        Returns True if the record was deleted, False if the job was not found,
+        does not belong to ``user_id``, or is in a non-terminal status.
+        """
+        job = self.get_by_job_id(db, job_id)
+        if not job:
+            logger.warning("delete_job: job %s not found", job_id)
+            return False
+
+        if job.user_id != user_id:
+            logger.warning(
+                "delete_job: user %s does not own job %s (owner: %s)",
+                user_id,
+                job_id,
+                job.user_id,
+            )
+            return False
+
+        terminal_statuses = {JOB_STATUS_COMPLETED, JOB_STATUS_FAILED}
+        if job.status not in terminal_statuses:
+            logger.warning(
+                "delete_job: job %s has non-terminal status %s, refusing delete",
+                job_id,
+                job.status,
+            )
+            return False
+
+        db.delete(job)
+        db.commit()
+        logger.info("Deleted job %s for user %s", job_id, user_id)
+        return True
+
     def list_for_user(
         self,
         db: Session,

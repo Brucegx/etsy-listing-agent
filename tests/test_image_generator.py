@@ -1,12 +1,15 @@
-"""Tests for image generator using Gemini 3 Pro."""
+"""Tests for image generator using Gemini Flash Image Generation."""
 
 from unittest.mock import patch, MagicMock
 
 from etsy_listing_agent.image_generator import generate_image_gemini
 
+# Canonical model name as defined in image_generator._IMAGE_MODEL
+_EXPECTED_IMAGE_MODEL = "gemini-3-pro-image-preview"
+
 
 def test_generate_image_uses_flash_model():
-    """generate_image_gemini calls Gemini with the 3 Pro Image model."""
+    """generate_image_gemini calls Gemini with the Flash Image Generation model."""
     mock_client = MagicMock()
     mock_part = MagicMock()
     mock_part.inline_data = MagicMock()
@@ -21,7 +24,7 @@ def test_generate_image_uses_flash_model():
         result = generate_image_gemini("test prompt", api_key="fake-key")
 
     call_kwargs = mock_client.models.generate_content.call_args
-    assert call_kwargs.kwargs["model"] == "gemini-3-pro-image-preview"
+    assert call_kwargs.kwargs["model"] == _EXPECTED_IMAGE_MODEL
     assert result == b"fake_png_data"
 
 

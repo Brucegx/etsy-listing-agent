@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -365,6 +366,24 @@ function AuthenticatedHome() {
   const [error, setError] = useState<string | null>(null);
   const [showUploadForm, setShowUploadForm] = useState(false);
 
+  // Recent jobs for hub view
+  interface RecentJob {
+    job_id: string;
+    product_id: string;
+    status: string;
+    created_at: string;
+  }
+  const [recentJobs, setRecentJobs] = useState<RecentJob[]>([]);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/jobs`, { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.jobs) setRecentJobs(data.jobs.slice(0, 5));
+      })
+      .catch(() => {});
+  }, []);
+
   // P0 submit feedback state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitBanner, setSubmitBanner] = useState<SubmitBanner | null>(null);
@@ -472,22 +491,7 @@ function AuthenticatedHome() {
   if (!showUploadForm && !isRunning && !hasResults) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <header className="border-b bg-white dark:bg-gray-900">
-          <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-3">
-            <div className="flex items-center gap-2">
-              <span>🛍️</span>
-              <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                Etsy Listing Agent
-              </h1>
-            </div>
-            <a
-              href={`${API_BASE}/api/auth/logout`}
-              className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-            >
-              Sign out
-            </a>
-          </div>
-        </header>
+        <NavBar />
 
         <main className="mx-auto max-w-4xl px-4 py-12 space-y-10">
           <div className="text-center space-y-2">
@@ -594,16 +598,47 @@ function AuthenticatedHome() {
             </a>
           </div>
 
-          {/* Recent jobs placeholder */}
+          {/* Recent jobs */}
           <div className="space-y-3">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-              Recent jobs
-            </h3>
-            <div className="rounded-lg border border-dashed border-gray-200 dark:border-gray-700 py-8 text-center">
-              <p className="text-sm text-gray-400 dark:text-gray-600">
-                Your recent generation jobs will appear here.
-              </p>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                Recent jobs
+              </h3>
+              {recentJobs.length > 0 && (
+                <Link href="/jobs" className="text-xs text-blue-500 hover:underline">View all</Link>
+              )}
             </div>
+            {recentJobs.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-gray-200 dark:border-gray-700 py-8 text-center">
+                <p className="text-sm text-gray-400 dark:text-gray-600">
+                  Your recent generation jobs will appear here.
+                </p>
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {recentJobs.map((job) => (
+                  <li key={job.job_id}>
+                    <Link
+                      href={`/jobs/${job.job_id}`}
+                      className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-3 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
+                    >
+                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                        {job.product_id}
+                      </span>
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                        job.status === "completed"
+                          ? "bg-green-50 text-green-600 dark:bg-green-950/40 dark:text-green-400"
+                          : job.status === "failed"
+                          ? "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400"
+                          : "bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400"
+                      }`}>
+                        {job.status}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </main>
       </div>
@@ -613,50 +648,7 @@ function AuthenticatedHome() {
   // Upload form + results view
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      {/* Header */}
-      <header className="border-b bg-white dark:bg-gray-900">
-        <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-2">
-            {!isRunning && (
-              <button
-                type="button"
-                onClick={() => {
-                  setShowUploadForm(false);
-                  setResults(null);
-                  setGeneratedImages([]);
-                  setStrategy(null);
-                  setError(null);
-                }}
-                className="mr-1 rounded-md p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                aria-label="Back to home"
-              >
-                <svg
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"
-                  />
-                </svg>
-              </button>
-            )}
-            <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-              Etsy Listing Agent
-            </h1>
-          </div>
-          <a
-            href={`${API_BASE}/api/auth/logout`}
-            className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-          >
-            Sign out
-          </a>
-        </div>
-      </header>
+      <NavBar />
 
       <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
         <Card className="shadow-sm">
@@ -752,12 +744,12 @@ function AuthenticatedHome() {
               >
                 <span>{submitBanner.message}</span>
                 {submitBanner.type === "success" && (
-                  <a
+                  <Link
                     href="/jobs"
                     className="ml-4 shrink-0 font-medium underline underline-offset-2 hover:no-underline"
                   >
                     Go to Jobs
-                  </a>
+                  </Link>
                 )}
                 <button
                   type="button"

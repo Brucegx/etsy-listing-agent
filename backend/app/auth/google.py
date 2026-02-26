@@ -48,6 +48,22 @@ async def exchange_code(code: str) -> dict:
         return resp.json()
 
 
+async def refresh_access_token(refresh_token: str) -> dict:
+    """Use refresh_token to get a new access_token from Google."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            GOOGLE_TOKEN_URL,
+            data={
+                "client_id": settings.google_client_id,
+                "client_secret": settings.google_client_secret,
+                "refresh_token": refresh_token,
+                "grant_type": "refresh_token",
+            },
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
 async def get_user_info(access_token: str) -> dict:
     """Fetch user profile from Google."""
     async with httpx.AsyncClient() as client:

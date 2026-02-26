@@ -30,7 +30,7 @@ from google.genai import types
 logger = logging.getLogger(__name__)
 
 # Gemini model used for image generation (DEC-001)
-_IMAGE_MODEL = "gemini-2.0-flash-preview-image-generation"
+_IMAGE_MODEL = "gemini-3-pro-image-preview"
 
 # Terminal states for a Gemini Batch job
 _BATCH_TERMINAL_STATES = {
@@ -116,7 +116,10 @@ def generate_image_gemini(
     if not api_key:
         raise ValueError("GEMINI_API_KEY not set")
 
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(timeout=600_000),  # 10 min in milliseconds
+    )
     size_map = {"1k": "1K", "2k": "2K", "4k": "4K"}
 
     contents: list[Any] = []
@@ -197,9 +200,9 @@ def _build_request_for_entry(
 
     return {
         "contents": [{"role": "user", "parts": parts}],
-        "generation_config": {
+        "config": {
             "response_modalities": ["TEXT", "IMAGE"],
-            "image_generation_config": {"image_size": image_size},
+            "image_config": {"image_size": image_size},
         },
     }
 
@@ -231,7 +234,10 @@ def submit_image_batch(
     if not api_key:
         raise ValueError("GEMINI_API_KEY not set")
 
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(timeout=600_000),  # 10 min in milliseconds
+    )
 
     inline_requests = [
         _build_request_for_entry(entry, product_dir, resolution)
@@ -283,7 +289,10 @@ def poll_batch_until_done(
     if not api_key:
         raise ValueError("GEMINI_API_KEY not set")
 
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(timeout=600_000),  # 10 min in milliseconds
+    )
     elapsed = 0.0
 
     while elapsed < timeout:
@@ -332,7 +341,7 @@ async def poll_batch_until_done_async(
     import asyncio
     import functools
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         None,
         functools.partial(

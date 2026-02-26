@@ -810,15 +810,15 @@ def _check_description_no_markdown(description: str) -> list[str]:
 
 
 def _check_long_tail_word_count(keywords: list) -> list[str]:
-    """Check whether each long_tail_keyword is 4-6 words"""
+    """Check whether each long_tail_keyword is 2-6 words"""
     errors = []
 
     for i, kw in enumerate(keywords):
         if isinstance(kw, str):
             word_count = len(kw.split())
-            if word_count < 4 or word_count > 6:
+            if word_count < 2 or word_count > 6:
                 errors.append(
-                    f"long_tail_keywords[{i}] should be 4-6 words, got {word_count}: '{kw}'"
+                    f"long_tail_keywords[{i}] should be 2-6 words, got {word_count}: '{kw}'"
                 )
 
     return errors

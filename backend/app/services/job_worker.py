@@ -21,7 +21,6 @@ from pathlib import Path
 from typing import Any
 
 from app.database import get_db
-from app.models.job import JOB_STATUS_BATCH_SUBMITTED
 from app.models.user import User
 from app.services.email_service import get_email_service
 from app.services.job_service import JobService
@@ -258,10 +257,13 @@ async def _run_batch_image_generation(
     api_key: str | None = None,
     poll_interval: float = 30.0,
 ) -> list[str]:
-    """Submit all prompts to Gemini Batch API, poll, and store images.
+    """Generate images sequentially using the Gemini API.
 
-    Images are written directly to persistent storage (no intermediate /tmp
-    directory — satisfies DEC-002: no ephemeral /tmp usage).
+    The Gemini image generation model does not support batchGenerateContent,
+    so we generate one image at a time using the synchronous API in a thread
+    pool to avoid blocking the event loop.
+
+    Images are written directly to persistent storage.
 
     Args:
         job_id: The job UUID string (used as the storage namespace).
@@ -270,7 +272,7 @@ async def _run_batch_image_generation(
         product_id: Product identifier (e.g. "R001").
         resolution: Image resolution — "1k", "2k", or "4k".
         api_key: Gemini API key.
-        poll_interval: Seconds between batch status polls.
+        poll_interval: Unused (kept for API compatibility).
 
     Returns:
         List of stable image URL paths (e.g. ``["/api/images/{job_id}/..."``]).
@@ -279,10 +281,8 @@ async def _run_batch_image_generation(
     import functools
 
     from etsy_listing_agent.image_generator import (
+        generate_image_gemini,
         parse_nanobanana_json,
-        submit_image_batch,
-        poll_batch_until_done,
-        collect_batch_images,
     )
 
     prompts_file = product_dir / f"{product_id}_NanoBanana_Prompts.json"
@@ -296,72 +296,85 @@ async def _run_batch_image_generation(
         return []
 
     # Determine the output dir — write directly to persistent storage job dir
-    # so we never touch /tmp after the workflow stage.
     storage = get_storage()
     storage_job_dir = storage.job_dir(job_id)
     output_dir = storage_job_dir / f"generated_{resolution}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # --- Submit batch ---
-    logger.info("Submitting batch for job %s (%d images)", job_id, len(entries))
-    batch_name = submit_image_batch(
-        entries=entries,
-        product_dir=product_dir,
-        resolution=resolution,
-        api_key=api_key,
-        display_name=f"etsy-agent-{product_id}-{job_id[:8]}",
-    )
-
-    # Transition job to batch_submitted — store batch_name in stage_name
+    # Update job status to generating
     db = get_db()
     try:
         _job_service.update_status(
-            db,
-            job_id,
-            status=JOB_STATUS_BATCH_SUBMITTED,
-            progress=60,
-            stage_name=f"batch_submitted:{batch_name}",
+            db, job_id, status="generating", progress=60,
+            stage_name="generating_images",
         )
     finally:
         db.close()
 
-    # --- Poll in thread pool (non-blocking) ---
+    # Generate images sequentially (in thread pool to avoid blocking)
     loop = asyncio.get_event_loop()
-    batch_job = await loop.run_in_executor(
-        None,
-        functools.partial(
-            poll_batch_until_done,
-            batch_name,
-            api_key=api_key,
-            poll_interval=poll_interval,
-        ),
-    )
-
-    # --- Collect and save images directly to persistent storage ---
-    collect_results = collect_batch_images(
-        batch_job=batch_job,
-        entries=entries,
-        output_dir=output_dir,
-        product_id=product_id,
-        resolution=resolution,
-    )
-
-    # Build stable URL paths from the files we wrote
     image_urls: list[str] = []
-    for item in collect_results.get("generated", []):
-        img_path = Path(item["path"])
+    generated = 0
+    failed = 0
+
+    for i, entry in enumerate(entries):
+        # Build reference image paths
+        ref_paths = [
+            str(product_dir / ref_name)
+            for ref_name in entry.reference_images
+            if (product_dir / ref_name).exists()
+        ]
+
         try:
-            rel = img_path.relative_to(storage_job_dir)
-        except ValueError:
-            rel = Path(img_path.name)
-        url = f"/api/images/{job_id}/{str(rel).replace(chr(92), '/')}"
-        image_urls.append(url)
+            logger.info(
+                "Generating image %d/%d for job %s: %s",
+                i + 1, len(entries), job_id, entry.type_en,
+            )
+
+            image_bytes = await loop.run_in_executor(
+                None,
+                functools.partial(
+                    generate_image_gemini,
+                    prompt=entry.prompt,
+                    reference_image_paths=ref_paths,
+                    resolution=resolution,
+                    api_key=api_key,
+                ),
+            )
+
+            # Save image to persistent storage
+            safe_type = entry.type_en.replace("/", "_").replace(" ", "_")
+            filename = f"{product_id}_{safe_type}_{i+1}.png"
+            image_path = output_dir / filename
+            image_path.write_bytes(image_bytes)
+
+            # Build stable URL
+            rel = image_path.relative_to(storage_job_dir)
+            url = f"/api/images/{job_id}/{str(rel).replace(chr(92), '/')}"
+            image_urls.append(url)
+            generated += 1
+
+            # Update progress (60-95 range for image generation)
+            progress = 60 + int((i + 1) / len(entries) * 35)
+            db = get_db()
+            try:
+                _job_service.update_status(
+                    db, job_id, status="generating", progress=progress,
+                    stage_name=f"image_{i+1}_of_{len(entries)}",
+                )
+            finally:
+                db.close()
+
+        except Exception as exc:
+            logger.warning(
+                "Failed to generate image %d/%d for job %s (%s): %s",
+                i + 1, len(entries), job_id, entry.type_en, exc,
+            )
+            failed += 1
 
     logger.info(
-        "Batch complete for job %s — %d generated, %d failed",
-        job_id,
-        len(collect_results.get("generated", [])),
-        len(collect_results.get("failed", [])),
+        "Image generation complete for job %s — %d generated, %d failed",
+        job_id, generated, failed,
     )
     return image_urls
 

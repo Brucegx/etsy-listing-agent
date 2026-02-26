@@ -31,6 +31,8 @@ Detailed team rules: `.claude/rules/team-orchestration.md`
 - MUST write Playwright E2E tests for every user-facing flow
 - MUST run existing tests (`uv run pytest tests/` and `cd backend && uv run pytest`) before marking tasks complete
 - MUST NOT modify files under `config/` (gitignored proprietary config) — use `config.example/` for templates
+- MUST NOT expose prompt text, strategy data, or `config/` contents in API responses, logs, or frontend — these are proprietary IP
+- MUST strip `prompts`, `strategy`, and `product_data` from job results before returning to frontend (only `listing` is public)
 
 ## Frontend Design Rules
 - MUST invoke `ux-design` skill before designing any page or component layout

@@ -1,14 +1,15 @@
 """Jobs API — status polling and history for async generation jobs.
 
 Implements:
-  GET  /api/jobs/{job_id}   — poll a single job (DEC-003)
-  GET  /api/jobs            — list all jobs for authenticated user (DEC-007)
+  GET    /api/jobs/{job_id}   — poll a single job (DEC-003)
+  GET    /api/jobs            — list all jobs for authenticated user (DEC-007)
+  DELETE /api/jobs/{job_id}   — delete a completed/failed job and its files
 """
 
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel
 
 from app.database import get_db
@@ -16,6 +17,7 @@ from app.deps import get_current_user
 from app.models.job import Job
 from app.models.user import User
 from app.services.job_service import JobService
+from app.services.storage import get_storage
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +64,23 @@ class JobListResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+_LISTING_ALLOWED_KEYS = {
+    "$schema", "product_id", "generated_at",
+    "title", "title_variations", "tags", "long_tail_keywords",
+    "description", "attributes",
+}
+
+
+def _safe_result(raw: dict | None) -> dict | None:
+    """Strip proprietary prompt/strategy data — only expose listing info."""
+    if not raw:
+        return raw
+    listing = raw.get("listing")
+    if not isinstance(listing, dict):
+        return None
+    return {"listing": {k: v for k, v in listing.items() if k in _LISTING_ALLOWED_KEYS}}
+
+
 def _job_to_response(job: Job) -> JobResponse:
     return JobResponse(
         job_id=job.job_id,
@@ -71,7 +90,7 @@ def _job_to_response(job: Job) -> JobResponse:
         progress=job.progress,
         stage_name=job.stage_name,
         image_urls=job.image_urls,
-        result=job.result,
+        result=_safe_result(job.result),
         error_message=job.error_message,
         cost_usd=job.cost_usd,
         created_at=job.created_at,
@@ -103,10 +122,65 @@ def get_job(
         raise HTTPException(status_code=404, detail="Job not found")
 
     # Only allow the owning user to see the job
-    if job.user_id is not None and job.user_id != current_user.id:
+    if job.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Forbidden")
 
     return _job_to_response(job)
+
+
+@router.delete(
+    "/{job_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a completed or failed job",
+    description=(
+        "Permanently deletes a job record and its stored files. "
+        "Only jobs in **completed** or **failed** status may be deleted. "
+        "Active jobs are rejected to avoid orphaning in-flight workers."
+    ),
+)
+def delete_job(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """Delete a job that belongs to the authenticated user.
+
+    Returns 204 on success.
+    Returns 404 if the job does not exist.
+    Returns 403 if the job belongs to another user.
+    Returns 409 if the job is still in an active (non-terminal) status.
+    """
+    db = get_db()
+    try:
+        # Fetch first so we can distinguish 404 vs 403 vs 409.
+        job = _job_service.get_by_job_id(db, job_id)
+
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        if job.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        deleted = _job_service.delete_job(db, job_id, current_user.id)
+    finally:
+        db.close()
+
+    if not deleted:
+        # The only remaining reason delete_job returns False at this point is a
+        # non-terminal status (ownership and existence were already checked above).
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Job cannot be deleted while it is still running",
+        )
+
+    # Best-effort file cleanup — log but do not fail the request if storage is
+    # unavailable, since the DB record has already been removed.
+    try:
+        storage = get_storage()
+        storage.delete_job(job_id)
+    except Exception:
+        logger.exception("Failed to delete storage files for job %s", job_id)
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("", response_model=JobListResponse)

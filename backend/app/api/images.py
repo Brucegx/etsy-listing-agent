@@ -76,7 +76,7 @@ async def serve_image(job_id: str, path: str) -> FileResponse:
 def _is_relative_to_safe(path: Path, root: Path) -> bool:
     """Check if path is relative to root without raising exceptions."""
     try:
-        path.relative_to(root.resolve())
+        path.resolve().relative_to(root.resolve())
         return True
     except ValueError:
         return False

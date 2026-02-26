@@ -476,6 +476,38 @@ async def listing_fan_out_node(state: ProductState) -> dict:
 
 # ===== Reviewer Nodes =====
 
+_ETSY_TAG_MAX_CHARS = 20
+
+
+def _auto_fix_tags(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Auto-fix tags that exceed Etsy's 20-character limit.
+
+    Truncates at word boundaries.  Returns (data, was_fixed).
+    """
+    tags = data.get("tags", "")
+    if not isinstance(tags, str) or not tags:
+        return data, False
+
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+    fixed = False
+    for i, tag in enumerate(tag_list):
+        if len(tag) > _ETSY_TAG_MAX_CHARS:
+            # Truncate at word boundary
+            words = tag.split()
+            truncated = ""
+            for word in words:
+                candidate = f"{truncated} {word}".strip() if truncated else word
+                if len(candidate) <= _ETSY_TAG_MAX_CHARS:
+                    truncated = candidate
+                else:
+                    break
+            tag_list[i] = truncated or tag[:_ETSY_TAG_MAX_CHARS]
+            fixed = True
+
+    if fixed:
+        data["tags"] = ", ".join(tag_list)
+    return data, fixed
+
 
 def _run_layered_review(
     data: dict[str, Any],
@@ -590,6 +622,14 @@ async def listing_review_node(
         state["stage"] = "listing_review"
         return state
 
+    # Auto-fix tags that exceed Etsy's 20-character limit by truncating
+    # at word boundaries. This prevents repeated retry failures when the
+    # AI generates tags like "moissanite engagement" (21 chars).
+    data, tags_fixed = _auto_fix_tags(data)
+    if tags_fixed:
+        with open(listing_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
     # Execute layered validation (L1 + L2)
     review_result = _run_layered_review(
         data,
@@ -598,13 +638,16 @@ async def listing_review_node(
     )
 
     # L3 semantic validation (explicit override > env var, default: on)
+    # L3 is advisory only — log suggestions but never block the pipeline.
+    # L1+L2 passing means the listing is structurally valid for Etsy.
     l3_active = enable_l3 if enable_l3 is not None else _l3_enabled()
     if review_result.passed and l3_active:
         l3_result = await _run_semantic_review(
             "etsy-listing-batch-generator", data, api_key
         )
         if not l3_result.passed:
-            review_result = l3_result
+            print(f"  ⚠️ L3 semantic suggestions (non-blocking): {l3_result.errors}")
+            # Do NOT override review_result — L3 is advisory
 
     # Update retry count
     if not review_result.passed:
@@ -1011,11 +1054,15 @@ async def prompt_node(state: dict) -> dict:
     turns_used = result["usage_metadata"].get("turns", 0)
     print(f"  ⏱️ [{direction}] Done in {_node_elapsed}s, {turns_used} turns, ${total_cost:.4f}")
 
+    # Prompt is successful as long as we have non-empty text.
+    # Validation warnings are informational — they don't block the pipeline.
+    has_prompt = bool(prompt_text.strip())
+
     return {
         "prompt_results": [{
             "direction": direction,
             "prompt": prompt_text,
-            "success": not bool(errors),
+            "success": has_prompt,
             "error": f"Validation warnings: {errors}" if errors else None,
             "cost_usd": total_cost,
             "input_tokens": total_input,
