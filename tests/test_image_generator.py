@@ -5,7 +5,7 @@ from unittest.mock import patch, MagicMock
 from etsy_listing_agent.image_generator import generate_image_gemini
 
 # Canonical model name as defined in image_generator._IMAGE_MODEL
-_EXPECTED_IMAGE_MODEL = "gemini-3-pro-image-preview"
+_EXPECTED_IMAGE_MODEL = "gemini-3.1-flash-image-preview"
 
 
 def test_generate_image_uses_flash_model():

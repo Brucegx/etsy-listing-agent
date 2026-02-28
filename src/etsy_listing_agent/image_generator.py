@@ -30,7 +30,7 @@ from google.genai import types
 logger = logging.getLogger(__name__)
 
 # Gemini model used for image generation (DEC-001)
-_IMAGE_MODEL = "gemini-3-pro-image-preview"
+_IMAGE_MODEL = "gemini-3.1-flash-image-preview"
 
 # Terminal states for a Gemini Batch job
 _BATCH_TERMINAL_STATES = {

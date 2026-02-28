@@ -137,7 +137,7 @@ Encoding that knowledge into reusable skills is itself a hard problem. And witho
 | Preprocessing | Claude Sonnet (vision) | Only model in our stack that can see product photos. Extracts structured product data + writes the reference anchor. | Baseline |
 | Strategy Analysis | Kimi (K2.5), Claude fallback | Strong reasoning for marketing analysis. Text-only — reads the structured `product_data.json` from preprocessing, not raw photos. | ~1/10th Opus |
 | Prompt Generation (×10) | MiniMax | Exposes an Anthropic-compatible API, so our agentic loop works without code changes. Strong at structured text generation following skill instructions. | ~1/10th Sonnet |
-| Image Generation | Gemini 3 Pro (`gemini-3-pro-image-preview`) | Best image generation quality at this price point. Supports reference images and up to 4K resolution. | N/A (different capability) |
+| Image Generation | Gemini 3.1 Flash (`gemini-3.1-flash-image-preview`) | Pro-level quality at Flash speed, ~50% cheaper than Pro. Supports reference images and up to 4K resolution. | N/A (different capability) |
 | Reviews (L3 semantic) | Claude | When semantic quality judgment is needed, Claude's reasoning is still the best. Used sparingly. | Full price, but rare |
 
 **Why this works:** Our skills do the heavy lifting. When the prompt template is well-structured and the reference files are detailed, the model's job is execution, not reasoning. A cheaper model following excellent instructions produces results comparable to an expensive model with mediocre instructions.
