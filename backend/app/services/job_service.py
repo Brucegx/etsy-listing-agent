@@ -17,6 +17,7 @@ from app.models.job import (
     JOB_STATUS_GENERATING,
     JOB_STATUS_COMPLETED,
     JOB_STATUS_FAILED,
+    JOB_TYPE_FULL_LISTING,
 )
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,9 @@ class JobService:
         user_id: int | None = None,
         category: str = "",
         drive_folder_id: str = "",
+        job_type: str = JOB_TYPE_FULL_LISTING,
+        image_config: dict | None = None,
+        product_info: str | None = None,
     ) -> Job:
         """Create a new Job in QUEUED state and return it."""
         job = Job(
@@ -45,6 +49,9 @@ class JobService:
             user_id=user_id,
             category=category,
             drive_folder_id=drive_folder_id,
+            job_type=job_type,
+            image_config=image_config,
+            product_info=product_info,
             status=JOB_STATUS_QUEUED,
             progress=0,
             stage_name="queued",
@@ -52,7 +59,7 @@ class JobService:
         db.add(job)
         db.commit()
         db.refresh(job)
-        logger.info("Created job %s for product %s", job.job_id, product_id)
+        logger.info("Created job %s (type=%s) for product %s", job.job_id, job_type, product_id)
         return job
 
     # ------------------------------------------------------------------

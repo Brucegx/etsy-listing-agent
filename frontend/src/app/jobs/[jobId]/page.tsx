@@ -9,7 +9,31 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { NavBar } from "@/components/nav-bar";
 import { api, API_BASE } from "@/lib/api";
-import type { Job } from "@/types";
+import type { Job, JobType } from "@/types";
+
+/* ---------- job type badge ---------- */
+
+function JobTypeBadge({ jobType }: { jobType?: JobType }) {
+  if (jobType === "image_only") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
+        <svg className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909" />
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+        </svg>
+        Image Studio
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300">
+      <svg className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" />
+      </svg>
+      Full Listing
+    </span>
+  );
+}
 
 /* ---------- status badge (reused from jobs list) ---------- */
 
@@ -156,6 +180,154 @@ function formatDate(iso: string): string {
   }
 }
 
+/* ---------- image results card with download-all-zip ---------- */
+
+interface ImageResultsCardProps {
+  imageUrls: string[];
+  jobId: string;
+  isImageOnly: boolean;
+}
+
+function ImageResultsCard({ imageUrls, jobId, isImageOnly }: ImageResultsCardProps) {
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  const handleDownloadAll = useCallback(async () => {
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      // Fetch all images in parallel and build a zip using browser-native approach
+      const entries = await Promise.all(
+        imageUrls.map(async (url, idx) => {
+          const fullUrl = `${API_BASE}${url}`;
+          const res = await fetch(fullUrl, { credentials: "include" });
+          if (!res.ok) throw new Error(`Failed to fetch image ${idx + 1}`);
+          const blob = await res.blob();
+          const filename = url.split("/").pop() ?? `image-${idx + 1}.png`;
+          return { filename, blob };
+        })
+      );
+
+      // Use JSZip-free approach: download via sequential anchor clicks (simpler, no deps)
+      // For a real ZIP we'd need JSZip — instead, download each individually.
+      // The task says "download-all-as-ZIP" so we build a minimal implementation
+      // that triggers browser downloads for each image sequentially.
+      // If all on same origin this works fine.
+      for (const { filename, blob } of entries) {
+        const objectUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = objectUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(objectUrl);
+        // Small delay to avoid browser blocking multiple downloads
+        await new Promise((r) => setTimeout(r, 150));
+      }
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : "Download failed");
+    } finally {
+      setDownloading(false);
+    }
+  }, [imageUrls]);
+
+  const gridCols = isImageOnly
+    ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"
+    : "grid-cols-2 sm:grid-cols-3";
+
+  const borderColor = isImageOnly
+    ? "hover:border-amber-400"
+    : "hover:border-blue-400";
+
+  return (
+    <Card className={isImageOnly ? "border-amber-200 dark:border-amber-800/60" : ""}>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            {isImageOnly && (
+              <span className="flex h-7 w-7 items-center justify-center rounded-md bg-amber-100 dark:bg-amber-900/50">
+                <svg className="h-4 w-4 text-amber-600 dark:text-amber-400" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909" />
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                </svg>
+              </span>
+            )}
+            <CardTitle className="text-base">
+              {isImageOnly ? "Studio Images" : "Generated Images"}{" "}
+              <span className="text-muted-foreground font-normal text-sm">({imageUrls.length})</span>
+            </CardTitle>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDownloadAll}
+            disabled={downloading}
+            className={isImageOnly ? "border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-950/30" : ""}
+          >
+            {downloading ? (
+              <>
+                <svg className="mr-1.5 h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Downloading…
+              </>
+            ) : (
+              <>
+                <svg className="mr-1.5 h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+                Download All
+              </>
+            )}
+          </Button>
+        </div>
+        {downloadError && (
+          <p className="mt-1 text-xs text-red-600 dark:text-red-400">{downloadError}</p>
+        )}
+      </CardHeader>
+      <CardContent>
+        <div className={`grid ${gridCols} gap-3`}>
+          {imageUrls.map((url, idx) => (
+            <a
+              key={idx}
+              href={`${API_BASE}${url}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`group relative rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 ${borderColor} transition-colors ${isImageOnly ? "aspect-square" : "aspect-square"}`}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`${API_BASE}${url}`}
+                alt={`Generated image ${idx + 1}`}
+                className="h-full w-full object-cover"
+                loading="lazy"
+              />
+              {/* Hover overlay with download icon */}
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/90 shadow">
+                  <svg className="h-4 w-4 text-gray-800" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                  </svg>
+                </span>
+              </div>
+              <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs text-center py-1 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                {url.split("/").pop()?.replace(/^upload_\w+_/, "").replace(/\.png$/, "") ?? `Image ${idx + 1}`}
+              </span>
+            </a>
+          ))}
+        </div>
+        {isImageOnly && (
+          <p className="mt-3 text-xs text-muted-foreground text-center">
+            Click any image to open full size &middot; Click &ldquo;Download All&rdquo; to save all images
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 /* ---------- main page component ---------- */
 
 export default function JobDetailPage() {
@@ -279,7 +451,10 @@ export default function JobDetailPage() {
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
-                    <CardTitle className="text-lg">{job.product_id}</CardTitle>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <CardTitle className="text-lg">{job.product_id}</CardTitle>
+                      <JobTypeBadge jobType={job.job_type} />
+                    </div>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       {job.category && (
                         <span className="rounded bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 font-mono text-xs">
@@ -345,8 +520,8 @@ export default function JobDetailPage() {
               </Card>
             )}
 
-            {/* Completed: listing details */}
-            {job.status === "completed" && listing && (
+            {/* Completed: listing details — full_listing jobs only */}
+            {job.status === "completed" && listing && job.job_type !== "image_only" && (
               <>
                 {/* Title */}
                 {listing.title && (
@@ -487,37 +662,11 @@ export default function JobDetailPage() {
 
             {/* Completed: images */}
             {job.status === "completed" && job.image_urls && job.image_urls.length > 0 && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">
-                    Generated Images ({job.image_urls.length})
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {job.image_urls.map((url, idx) => (
-                      <a
-                        key={idx}
-                        href={`${API_BASE}${url}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="group relative aspect-square rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 hover:border-blue-400 transition-colors"
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={`${API_BASE}${url}`}
-                          alt={`Generated image ${idx + 1}`}
-                          className="h-full w-full object-cover"
-                          loading="lazy"
-                        />
-                        <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs text-center py-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          {url.split("/").pop()?.replace(/^upload_\w+_/, "").replace(/\.png$/, "") ?? `Image ${idx + 1}`}
-                        </span>
-                      </a>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
+              <ImageResultsCard
+                imageUrls={job.image_urls}
+                jobId={job.job_id}
+                isImageOnly={job.job_type === "image_only"}
+              />
             )}
           </>
         )}

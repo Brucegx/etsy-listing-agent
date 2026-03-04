@@ -1,28 +1,39 @@
 """Jobs API — status polling and history for async generation jobs.
 
 Implements:
-  GET    /api/jobs/{job_id}   — poll a single job (DEC-003)
-  GET    /api/jobs            — list all jobs for authenticated user (DEC-007)
-  DELETE /api/jobs/{job_id}   — delete a completed/failed job and its files
+  GET    /api/jobs/{job_id}      — poll a single job (DEC-003)
+  GET    /api/jobs               — list all jobs for authenticated user (DEC-007)
+  DELETE /api/jobs/{job_id}      — delete a completed/failed job and its files
+  POST   /api/jobs/image-studio  — submit an image_only job (Phase 6A)
 """
 
+import asyncio
 import logging
+import os
+import uuid
 from datetime import datetime
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
+from pydantic import BaseModel, Field, field_validator
 
 from app.database import get_db
-from app.deps import get_current_user
-from app.models.job import Job
+from app.deps import get_current_user, get_optional_user, rate_limit_user
+from app.models.job import Job, JOB_TYPE_IMAGE_ONLY
 from app.models.user import User
 from app.services.job_service import JobService
 from app.services.storage import get_storage
+from app.services.temp_manager import TempManager
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 _job_service = JobService()
+
+# --- Image Studio upload limits ---
+_STUDIO_MAX_FILES = 10
+_STUDIO_MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+_STUDIO_ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
 # ---------------------------------------------------------------------------
@@ -36,6 +47,7 @@ class JobResponse(BaseModel):
     job_id: str
     product_id: str
     category: str
+    job_type: str = "full_listing"
     status: str
     progress: int
     stage_name: str
@@ -47,6 +59,14 @@ class JobResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ImageStudioSubmitResponse(BaseModel):
+    """Returned immediately when an Image Studio job is accepted."""
+
+    job_id: str
+    status: str = "queued"
+    message: str = "Image Studio job queued. Poll GET /api/jobs/{job_id} for status."
 
 
 class JobListResponse(BaseModel):
@@ -86,6 +106,7 @@ def _job_to_response(job: Job) -> JobResponse:
         job_id=job.job_id,
         product_id=job.product_id,
         category=job.category,
+        job_type=job.job_type,
         status=job.status,
         progress=job.progress,
         stage_name=job.stage_name,
@@ -101,6 +122,141 @@ def _job_to_response(job: Job) -> JobResponse:
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
+
+# NOTE: /image-studio MUST be defined before /{job_id} so FastAPI does not
+# match "image-studio" as a job_id path parameter (→ 405 Method Not Allowed).
+@router.post("/image-studio", response_model=ImageStudioSubmitResponse)
+async def submit_image_studio(
+    images: list[UploadFile] = File(..., description="Product reference images"),
+    category: str = Form(
+        ...,
+        description="Shot category: white_bg | scene | model | detail",
+    ),
+    count: int = Form(
+        default=4,
+        ge=1,
+        le=8,
+        description="Number of image variations to generate (1-8)",
+    ),
+    aspect_ratio: str = Form(
+        default="",
+        description="Output aspect ratio: 1:1 | 3:4 | 4:3 (empty = no crop)",
+    ),
+    additional_prompt: str = Form(
+        default="",
+        description="Optional extra instructions for the image generator",
+    ),
+    product_info: str = Form(
+        default="",
+        description="Free-text product description (optional, supplements image analysis)",
+    ),
+    current_user: User | None = Depends(get_optional_user),
+    _rate_limit: None = Depends(rate_limit_user),
+) -> ImageStudioSubmitResponse:
+    """Submit an Image Studio job — generates product images without a full listing.
+
+    Accepts uploaded product images, a shot category, and generation config.
+    Returns a ``job_id`` immediately.  Poll ``GET /api/jobs/{job_id}`` for status.
+
+    **Category values:**
+    - ``white_bg`` — hero shot on white background
+    - ``scene`` — lifestyle scene
+    - ``model`` — model wearing the product
+    - ``detail`` — macro detail close-up
+    """
+    from app.services.job_worker import run_image_only_job
+
+    # --- Input validation ---
+    valid_categories = {"white_bg", "scene", "model", "detail"}
+    if category not in valid_categories:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid category '{category}'. Must be one of: {', '.join(sorted(valid_categories))}",
+        )
+
+    valid_ratios = {"1:1", "3:4", "4:3", ""}
+    ar = aspect_ratio.strip()
+    if ar not in valid_ratios:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid aspect_ratio '{ar}'. Must be one of: 1:1, 3:4, 4:3 (or empty)",
+        )
+
+    if not images:
+        raise HTTPException(status_code=400, detail="At least one image is required")
+    if len(images) > _STUDIO_MAX_FILES:
+        raise HTTPException(status_code=400, detail=f"Maximum {_STUDIO_MAX_FILES} images allowed")
+    for img in images:
+        if img.content_type and img.content_type not in _STUDIO_ALLOWED_TYPES:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {img.content_type}")
+
+    image_config = {
+        "category": category,
+        "count": count,
+        "aspect_ratio": ar or None,
+        "additional_prompt": additional_prompt.strip(),
+    }
+
+    product_id = f"studio_{uuid.uuid4().hex[:8]}"
+
+    # 1. Create DB job record
+    db = get_db()
+    try:
+        job = _job_service.create_job(
+            db,
+            product_id=product_id,
+            user_id=current_user.id if current_user else None,
+            job_type=JOB_TYPE_IMAGE_ONLY,
+            image_config=image_config,
+            product_info=product_info.strip() or None,
+        )
+        job_id = job.job_id
+    finally:
+        db.close()
+
+    # 2. Save uploaded images to temp dir
+    temp = TempManager()
+    product_dir = temp.setup(product_id)
+    saved_files: list[str] = []
+    try:
+        for img in images:
+            content = await img.read()
+            if len(content) > _STUDIO_MAX_FILE_SIZE:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"File too large: {img.filename} (max 10 MB)",
+                )
+            filename = (
+                os.path.basename(img.filename or f"image_{len(saved_files)}.png")
+                or f"image_{len(saved_files)}.png"
+            )
+            (product_dir / filename).write_bytes(content)
+            saved_files.append(filename)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        db = get_db()
+        try:
+            _job_service.mark_failed(db, job_id, error_message="Failed to save uploaded images")
+        finally:
+            db.close()
+        raise HTTPException(status_code=500, detail=f"Failed to save images: {exc}") from exc
+
+    # 3. Queue the image_only job in the background
+    asyncio.create_task(
+        run_image_only_job(
+            job_id=job_id,
+            product_id=product_id,
+            product_dir=product_dir,
+            image_files=saved_files,
+            product_info=product_info.strip(),
+            image_config=image_config,
+            temp=temp,
+        )
+    )
+
+    return ImageStudioSubmitResponse(job_id=job_id)
 
 
 @router.get("/{job_id}", response_model=JobResponse)
@@ -209,3 +365,5 @@ def list_jobs(
         page_size=page_size,
         total_pages=total_pages,
     )
+
+

@@ -9,20 +9,28 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { NavBar } from "@/components/nav-bar";
 import { API_BASE } from "@/lib/api";
-/** Shape returned by GET /api/jobs → jobs[] */
-interface ApiJob {
-  job_id: string;
-  product_id: string;
-  category: string;
-  status: string;
-  progress: number;
-  stage_name: string;
-  image_urls: string[] | null;
-  result: Record<string, unknown> | null;
-  error_message: string | null;
-  cost_usd: number;
-  created_at: string;
-  updated_at: string;
+import type { Job } from "@/types";
+
+function JobTypeBadge({ jobType }: { jobType?: string }) {
+  if (jobType === "image_only") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
+        <svg className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909" />
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+        </svg>
+        Image Studio
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300">
+      <svg className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" />
+      </svg>
+      Full Listing
+    </span>
+  );
 }
 
 /**
@@ -171,7 +179,7 @@ function ListingSummary({ listing }: { listing: Record<string, string> }) {
 export default function JobsPage() {
   const { loading, isAuthenticated } = useAuth();
   const router = useRouter();
-  const [jobs, setJobs] = useState<ApiJob[]>([]);
+  const [jobs, setJobs] = useState<Job[]>([]);
   const [jobsLoading, setJobsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [expandedErrors, setExpandedErrors] = useState<Set<string>>(new Set());
@@ -363,10 +371,13 @@ export default function JobsPage() {
                       {/* Clickable header area — Link wraps only safe (no nested <a>) content */}
                       <Link href={`/jobs/${job.job_id}`} className="block px-4 py-3 space-y-2">
                         <div className="flex items-start justify-between gap-3">
-                          <div className="flex-1 min-w-0 space-y-0.5">
-                            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                              {job.product_id}
-                            </p>
+                          <div className="flex-1 min-w-0 space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                                {job.product_id}
+                              </p>
+                              <JobTypeBadge jobType={job.job_type} />
+                            </div>
                             <p className="text-xs text-muted-foreground">
                               {job.category && (
                                 <span className="mr-2 rounded bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 font-mono">
@@ -382,9 +393,20 @@ export default function JobsPage() {
                           <StatusBadge status={job.status} />
                         </div>
 
-                        {/* Listing info for completed jobs */}
-                        {job.status === "completed" && job.result && "listing" in job.result && (
+                        {/* Listing info for completed full_listing jobs only */}
+                        {job.status === "completed" && job.result && "listing" in job.result && job.job_type !== "image_only" && (
                           <ListingSummary listing={job.result.listing as Record<string, string>} />
+                        )}
+
+                        {/* Image-only: show compact image count */}
+                        {job.status === "completed" && job.job_type === "image_only" && job.image_urls && job.image_urls.length > 0 && (
+                          <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                            <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909" />
+                              <rect x="3" y="3" width="18" height="18" rx="2" />
+                            </svg>
+                            {job.image_urls.length} image{job.image_urls.length !== 1 ? "s" : ""} generated
+                          </div>
                         )}
 
                         {/* Progress bar for in-flight jobs */}

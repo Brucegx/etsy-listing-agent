@@ -1,41 +1,56 @@
 # Plan
 
-## Phase 1: Infrastructure — Storage, Jobs & Batch Generation
-- [x] [backend] Design and implement persistent image storage (local disk with configurable path, S3-ready interface)
-- [x] [backend] Enhance `Job` model — status tracking (queued → strategy → batch_submitted → generating → completed → failed), progress %, result URLs, user_id FK
-- [x] [backend] Implement async job submission — `POST /api/generate/*` returns `job_id` immediately, queues work in background
-- [x] [backend] Add job status endpoint: `GET /api/jobs/{job_id}` (status, progress, stage name, result URLs when done)
-- [x] [backend] Add job history endpoint: `GET /api/jobs` (list all jobs for authenticated user, with pagination)
-- [x] [backend] Replace sync Gemini calls with Gemini Batch API — submit all 10 image prompts as one batch, poll for results
-- [x] [backend] Migrate image serving from ephemeral /tmp to persistent storage with stable URLs
-- [x] [backend] Add email notification service — send email when job completes (using user's Google email from OAuth)
-- [x] [qa] Write backend integration tests for job lifecycle (submit → poll → batch complete → retrieve images)
+## Phase 1-4: COMPLETE ✅
 
-## Phase 2: Public API
-- [x] [backend] Design public API schema — API key auth, rate limiting, OpenAPI docs
-- [x] [backend] Implement API key management (generate, revoke, per-user keys stored in DB)
-- [x] [backend] Add API key auth middleware for `/api/v1/*` endpoints
-- [x] [backend] Create public generation endpoint: `POST /api/v1/generate` (accepts images as multipart or URLs)
-- [x] [backend] Add webhook callback support — notify caller when job completes (optional callback_url param)
-- [x] [backend] Handle large image uploads — chunked upload or presigned URL pattern for 8MB+ images
-- [x] [qa] Write API integration tests — auth, generation, polling, webhooks, error cases
+## Phase 5: UX Fixes — Smoke Test Issues (2026-02-25)
 
-## Phase 3: Frontend — Full Product UI
-- [x] [frontend] Redesign landing page — product marketing, CTA, demo
-- [x] [frontend] Build job dashboard — list all jobs with status badges, thumbnails, re-download
-- [x] [frontend] Build API key management page — generate/revoke keys, usage stats, docs link
-- [x] [frontend] Improve generation flow — show stage name + progress %, "we'll email you when done" messaging
-- [x] [frontend] Polish Google Drive integration — better folder picker, preview images before generating
-- [x] [frontend] Add responsive design and mobile support
-- [x] [qa] Set up Playwright test infrastructure (config, fixtures, helpers)
-- [x] [qa] Write E2E tests: upload flow (upload images → submit → see job in dashboard → results ready)
-- [x] [qa] Write E2E tests: Drive flow (login → browse → select product → generate → check dashboard)
-- [x] [qa] Write E2E tests: API key management (create, copy, revoke)
+### Critical Bugs
+- [ ] [backend] Fix image size error: compress/resize uploaded images to <5MB before sending to Claude API (current: 6.7MB → Claude rejects with 400)
+- [ ] [backend] Return user-friendly error messages, not raw API error dicts (e.g., "Image too large" not `{'type': 'error', 'error': {'type': 'invalid_request_error'...}}`)
+- [x] [frontend] Add submit feedback: loading spinner on button + success toast "Job #xxx created — track it in Jobs" with link + disable button after click (899aaae)
+- [x] [frontend] Prevent duplicate submissions: disable Generate button for 5s after click, or detect same images within session (899aaae)
 
-## Phase 4: Production Readiness
-- [x] [backend] Add Dockerfile and docker-compose.yml (backend + frontend + DB)
-- [x] [backend] Add structured logging and error tracking
-- [x] [backend] Add rate limiting per API key and per user
-- [x] [frontend] Add error boundaries and user-friendly error pages
-- [x] [qa] Run full E2E regression suite, fix flaky tests
-- [x] [qa] Write load test for concurrent generation requests
+### Auth & Navigation
+- [x] [frontend] Landing page redesign (DEC-011): limited demo mode (1 image preview, no full generation), CTA = "Sign in with Google" (526eccb)
+- [x] [frontend] After login, show combined home page with two paths: "Upload Photos" and "From Google Drive" (526eccb)
+- [x] [frontend] NavBar: always show Home / Dashboard / Jobs / API Keys links when logged in. Add Home link (currently missing). (899aaae)
+
+### Google Drive Issues
+- [x] [frontend] Fix Drive folder name display — truncate long names with ellipsis (526eccb)
+- [ ] [backend] Fix Drive data sync — verify API returns real user folders, check sort order, investigate stale/wrong data
+- [x] [frontend] Drive dashboard: add loading states, better error messages for auth token expiry (526eccb)
+
+### UX Polish
+- [x] [frontend] API Keys page: add explanation header ("For developers: use our API to generate listings programmatically") (526eccb)
+- [x] [frontend] Jobs page: show friendly error messages, not raw error strings (526eccb, 7e21872)
+- [x] [frontend] Add usage guide / example on Dashboard: "How to organize your product photos" with folder structure example (526eccb)
+
+### Additional Work Done (not in original plan)
+- [x] [frontend] Job detail page — view individual job results (a86dc2f)
+- [x] [frontend] Delete jobs from dashboard (a86dc2f)
+- [x] [backend] Security hardening — strip sensitive data from API responses (a86dc2f)
+- [x] [engine] Switch image model to Gemini 3.1 Flash (b57cb8d)
+
+## Phase 6: Image Studio — Standalone Image Generation (2026-03-04)
+
+Design doc: `docs/plans/2026-03-04-image-studio-design.md`
+
+### Phase 6A: Backend — Image Studio Service
+- [ ] [backend] Add `job_type` and `image_config` columns to Job model + migration
+- [ ] [backend] Create `image_studio.py` service — prompt builder that reuses preprocessing (ANCHOR) + prompt_node (jewelry-prompt-generator skill), skips strategy
+- [ ] [backend] Implement multi-image variation logic (variation_index + hints for angle/lighting/composition)
+- [ ] [backend] Add aspect ratio post-processing (Pillow crop to 1:1 / 3:4 / 4:3)
+- [ ] [backend] Update job worker to branch on `job_type` (`full_listing` vs `image_only`)
+- [ ] [backend] Update job API to accept `image_config` (category, additional_prompt, count, aspect_ratio) + `product_info` (free text)
+- [ ] [backend] Tests for image studio service
+
+### Phase 6B: Frontend — Image Studio UI
+- [ ] [frontend] Add tab switcher on home page (Full Listing / Image Studio)
+- [ ] [frontend] Build Image Studio form: image type card picker (白底图/场景图/模特图/细节图), additional prompt textarea, product info textarea, count selector (1-9), aspect ratio selector (1:1/3:4/4:3)
+- [ ] [frontend] Submit `image_only` job to API, reuse existing job creation flow + toast
+- [ ] [frontend] Update Jobs page to handle `image_only` results — image grid (no listing section), job_type badge
+- [ ] [frontend] Add download-all-as-ZIP for image results
+
+### Phase 6C: Integration & Testing
+- [ ] [qa] E2E Playwright tests for Image Studio flow
+- [ ] [qa] Real browser smoke test (mandatory per DEC-013)
