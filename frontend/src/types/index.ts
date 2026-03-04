@@ -32,11 +32,25 @@ export type JobStatus =
   | "completed"
   | "failed";
 
+export type JobType = "full_listing" | "image_only";
+
+export type ImageCategory = "white_bg" | "scene" | "model" | "detail";
+
+export type AspectRatio = "1:1" | "3:4" | "4:3";
+
+export interface ImageConfig {
+  category: ImageCategory | null;
+  additional_prompt: string;
+  count: number;
+  aspect_ratio: AspectRatio;
+}
+
 export interface Job {
   id?: number;
   job_id: string;
   product_id: string;
   category: string;
+  job_type?: JobType;
   status: JobStatus;
   progress: number;
   stage_name: string;

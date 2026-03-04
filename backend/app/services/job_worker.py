@@ -12,6 +12,12 @@ Image generation flow (DEC-006):
     5. Worker polls Gemini until the batch completes (async, non-blocking loop).
     6. ``collect_batch_images`` saves images directly to persistent storage.
     7. Job status advances to ``completed`` with stable image URLs.
+
+Phase 6A — Image Studio (job_type="image_only"):
+    Calls image_studio.generate_image_studio_images() which:
+    1. Runs preprocess_node (Claude Vision) on uploaded images.
+    2. Builds prompts per variation using _build_image_only_prompt().
+    3. Generates N images sequentially via Gemini, crops to aspect ratio.
 """
 
 import io
@@ -23,6 +29,7 @@ from typing import Any
 from app.database import get_db
 from app.models.user import User
 from app.services.email_service import get_email_service
+from app.services.image_studio import generate_image_studio_images
 from app.services.job_service import JobService
 from app.services.storage import get_storage
 from app.services.temp_manager import TempManager
@@ -312,7 +319,7 @@ async def _run_batch_image_generation(
         db.close()
 
     # Generate images sequentially (in thread pool to avoid blocking)
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     image_urls: list[str] = []
     generated = 0
     failed = 0
@@ -513,6 +520,82 @@ async def run_job(
         db.close()
         if temp is not None:
             # Keep input files briefly for debugging, then clean up
+            temp.schedule_cleanup(ttl_seconds=3600)
+
+
+async def run_image_only_job(
+    job_id: str,
+    product_id: str,
+    product_dir: Path,
+    image_files: list[str],
+    product_info: str,
+    image_config: dict[str, Any],
+    temp: TempManager | None = None,
+) -> None:
+    """Execute an Image Studio (image_only) job in the background.
+
+    Unlike run_job, this bypasses the full LangGraph workflow (no strategy,
+    no listing).  It runs:
+      1. preprocess_node (Claude Vision) to understand the product.
+      2. Gemini image generation for N variations of the requested category.
+      3. Pillow aspect-ratio crop post-processing.
+
+    Updates job status at each lifecycle stage and persists results into
+    persistent storage.  Any exception marks the job failed.
+
+    Args:
+        job_id: The public UUID string for the job.
+        product_id: Product identifier string.
+        product_dir: Directory where input images live.
+        image_files: List of uploaded image filenames (relative to product_dir).
+        product_info: Free-text product description from the user.
+        image_config: Dict from the API: category, count, aspect_ratio, additional_prompt.
+        temp: TempManager owning product_dir (for cleanup scheduling).
+    """
+    import os
+
+    api_key = os.environ.get("GEMINI_API_KEY") or None
+
+    db = get_db()
+    try:
+        # Compress images before sending to Claude Vision
+        image_files = _compress_product_images(product_dir, image_files)
+
+        # Delegate to the image_studio service (handles preprocess + generation)
+        image_urls = await generate_image_studio_images(
+            job_id=job_id,
+            product_id=product_id,
+            product_dir=product_dir,
+            image_files=image_files,
+            product_info=product_info,
+            image_config=image_config,
+            api_key=api_key,
+        )
+
+        # Mark completed — no listing result for image_only jobs
+        _job_service.mark_completed(db, job_id, result=None, image_urls=image_urls)
+        logger.info(
+            "Image Studio job %s finished — %d images stored",
+            job_id, len(image_urls),
+        )
+
+        # Send completion email (best-effort)
+        await _notify_job_completed(db, job_id, product_id, image_count=len(image_urls))
+
+    except Exception as exc:
+        logger.exception("Image Studio job %s failed", job_id)
+        friendly_msg = _friendly_error_message(exc)
+        try:
+            _job_service.mark_failed(db, job_id, error_message=friendly_msg)
+        except Exception:
+            logger.exception("Could not mark image_only job %s as failed", job_id)
+        try:
+            await _notify_job_failed(db, job_id, product_id, error_message=friendly_msg)
+        except Exception:
+            logger.exception("Could not send failure email for image_only job %s", job_id)
+    finally:
+        db.close()
+        if temp is not None:
             temp.schedule_cleanup(ttl_seconds=3600)
 
 

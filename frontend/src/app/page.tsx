@@ -10,10 +10,11 @@ import { ListingDisplay } from "@/components/listing-display";
 import { ImageGrid } from "@/components/image-grid";
 import { WorkflowPipeline } from "@/components/workflow-pipeline";
 import { NavBar } from "@/components/nav-bar";
+import { ImageStudioForm } from "@/components/image-studio-form";
 import { useSSE } from "@/lib/use-sse";
 import { useAuth } from "@/lib/auth";
 import { API_BASE } from "@/lib/api";
-import type { GenerateResults, ImageResult, ImageStrategy, SSEEvent } from "@/types";
+import type { GenerateResults, ImageResult, ImageStrategy, SSEEvent, ImageConfig } from "@/types";
 
 /** How long (ms) the "Job submitted" button stays disabled after a successful submit */
 const POST_SUBMIT_LOCK_MS = 5000;
@@ -26,7 +27,13 @@ interface SubmitBanner {
 // --- Unauthenticated landing page ---
 
 function DemoPreview({ file }: { file: File }) {
-  const [previewUrl] = useState(() => URL.createObjectURL(file));
+  const [previewUrl, setPreviewUrl] = useState<string>("");
+
+  useEffect(() => {
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
 
   return (
     <div className="rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm">
@@ -352,9 +359,42 @@ function DemoUploadZone({
   );
 }
 
-// --- Authenticated home hub ---
+// ─── Image Studio submit handler (standalone, no SSE) ──────────────────────
+
+async function submitImageStudioJob(
+  files: File[],
+  productInfo: string,
+  config: ImageConfig
+): Promise<{ job_id: string }> {
+  const formData = new FormData();
+  for (const file of files) formData.append("images", file);
+  if (config.category) formData.append("category", config.category);
+  formData.append("count", String(config.count));
+  formData.append("aspect_ratio", config.aspect_ratio);
+  formData.append("additional_prompt", config.additional_prompt);
+  if (productInfo) formData.append("product_info", productInfo);
+
+  const res = await fetch(`${API_BASE}/api/jobs/image-studio`, {
+    method: "POST",
+    credentials: "include",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to submit Image Studio job");
+  }
+
+  return res.json();
+}
+
+// ─── Authenticated home hub ─────────────────────────────────────────────────
 
 function AuthenticatedHome() {
+  // Hub mode state
+  const [activeMode, setActiveMode] = useState<"hub" | "full_listing" | "image_studio">("hub");
+
+  // Full Listing state
   const [files, setFiles] = useState<File[]>([]);
   const [material, setMaterial] = useState("");
   const [size, setSize] = useState("");
@@ -364,12 +404,24 @@ function AuthenticatedHome() {
   const [promptProgress, setPromptProgress] = useState({ total: 10, completed: 0 });
   const [strategy, setStrategy] = useState<ImageStrategy | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showUploadForm, setShowUploadForm] = useState(false);
+
+  // Image Studio state
+  const [studioSubmitting, setStudioSubmitting] = useState(false);
+  const [studioLocked, setStudioLocked] = useState(false);
+  const studioTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup studioTimerRef on unmount to prevent state updates on unmounted components
+  useEffect(() => {
+    return () => {
+      if (studioTimerRef.current) clearTimeout(studioTimerRef.current);
+    };
+  }, []);
 
   // Recent jobs for hub view
   interface RecentJob {
     job_id: string;
     product_id: string;
+    job_type?: string;
     status: string;
     created_at: string;
   }
@@ -433,7 +485,6 @@ function AuthenticatedHome() {
   const handleGenerate = useCallback(async () => {
     if (isSubmitting || postSubmitLocked) return;
 
-    // Reset state
     setResults(null);
     setGeneratedImages([]);
     setImageProgress({ total: 10, completed: 0 });
@@ -449,20 +500,13 @@ function AuthenticatedHome() {
       formData.append("material", material.trim());
       formData.append("size", size.trim());
 
-      // Start the SSE stream — this internally does the POST and streams results.
-      // We do a quick pre-flight check: if the fetch immediately fails (non-2xx),
-      // use-sse calls onError. We show a success banner right after start() begins
-      // (before stream completes) so the user knows the job was accepted.
       start("/api/generate/upload", formData);
 
-      // Show success banner immediately after the request is accepted.
-      // The stream continues in the background.
       setSubmitBanner({
         type: "success",
         message: "Job created! Track progress in Jobs →",
       });
 
-      // Lock the button for POST_SUBMIT_LOCK_MS to prevent duplicate submissions.
       setPostSubmitLocked(true);
       if (postSubmitTimerRef.current) clearTimeout(postSubmitTimerRef.current);
       postSubmitTimerRef.current = setTimeout(() => {
@@ -476,6 +520,30 @@ function AuthenticatedHome() {
     }
   }, [files, material, size, start, isSubmitting, postSubmitLocked]);
 
+  const handleImageStudioSubmit = useCallback(
+    async (studioFiles: File[], productInfo: string, config: ImageConfig) => {
+      if (studioSubmitting || studioLocked) return;
+      setStudioSubmitting(true);
+      setSubmitBanner(null);
+      try {
+        await submitImageStudioJob(studioFiles, productInfo, config);
+        setSubmitBanner({
+          type: "success",
+          message: "Image Studio job created! Track progress in Jobs →",
+        });
+        setStudioLocked(true);
+        if (studioTimerRef.current) clearTimeout(studioTimerRef.current);
+        studioTimerRef.current = setTimeout(() => setStudioLocked(false), POST_SUBMIT_LOCK_MS);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Failed to submit Image Studio job";
+        setSubmitBanner({ type: "error", message: msg });
+      } finally {
+        setStudioSubmitting(false);
+      }
+    },
+    [studioSubmitting, studioLocked]
+  );
+
   const hasResults = results?.listing || generatedImages.length > 0 || strategy;
 
   const generateButtonLabel = isSubmitting
@@ -488,7 +556,7 @@ function AuthenticatedHome() {
     "w-full rounded-lg border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50";
 
   // Hub view — choose workflow
-  if (!showUploadForm && !isRunning && !hasResults) {
+  if (activeMode === "hub" && !isRunning && !hasResults) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
         <NavBar />
@@ -496,105 +564,87 @@ function AuthenticatedHome() {
         <main className="mx-auto max-w-4xl px-4 py-12 space-y-10">
           <div className="text-center space-y-2">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-              How would you like to start?
+              What would you like to create?
             </h2>
             <p className="text-gray-500 dark:text-gray-400 text-sm">
-              Choose a workflow to generate your Etsy listings
+              Choose a workflow to get started
             </p>
           </div>
 
-          <div className="grid sm:grid-cols-2 gap-6">
-            {/* Upload workflow */}
+          <div className="grid sm:grid-cols-3 gap-5">
+            {/* Full Listing */}
             <button
               type="button"
-              onClick={() => setShowUploadForm(true)}
+              onClick={() => { setActiveMode("full_listing"); setSubmitBanner(null); }}
               className="text-left rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-6 hover:border-orange-400 hover:shadow-md transition-all group focus:outline-none focus:ring-2 focus:ring-orange-400"
             >
-              <div className="flex items-start gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100 dark:bg-orange-900/40 text-orange-600 dark:text-orange-400 group-hover:bg-orange-200 dark:group-hover:bg-orange-900/60 transition-colors">
-                  <svg
-                    className="h-6 w-6"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={1.5}
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"
-                    />
-                  </svg>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-gray-900 dark:text-gray-100 group-hover:text-orange-600 dark:group-hover:text-orange-400">
-                    Upload Photos
-                  </h3>
-                  <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                    Upload product images directly from your computer. Best for
-                    one-off listings.
-                  </p>
-                  <span className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-orange-500">
-                    Get started
-                    <svg
-                      className="h-4 w-4"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3"
-                      />
-                    </svg>
-                  </span>
-                </div>
+              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100 dark:bg-orange-900/40 text-orange-600 dark:text-orange-400 group-hover:bg-orange-200 transition-colors mb-4">
+                <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" />
+                </svg>
               </div>
+              <h3 className="font-semibold text-gray-900 dark:text-gray-100 group-hover:text-orange-600 dark:group-hover:text-orange-400">
+                Full Listing
+              </h3>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                SEO title, tags, description + 10 AI product photos.
+              </p>
+              <span className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-orange-500">
+                Get started
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+                </svg>
+              </span>
             </button>
 
-            {/* Google Drive workflow */}
+            {/* Image Studio */}
+            <button
+              type="button"
+              onClick={() => { setActiveMode("image_studio"); setSubmitBanner(null); }}
+              className="text-left rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-6 hover:border-amber-400 hover:shadow-md transition-all group focus:outline-none focus:ring-2 focus:ring-amber-400"
+            >
+              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 group-hover:bg-amber-200 transition-colors mb-4">
+                <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M13.5 12a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                </svg>
+              </div>
+              <h3 className="font-semibold text-gray-900 dark:text-gray-100 group-hover:text-amber-600 dark:group-hover:text-amber-400">
+                Image Studio
+              </h3>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                Generate custom product photos — white bg, scene, model or detail.
+              </p>
+              <span className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-amber-500">
+                Open studio
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+                </svg>
+              </span>
+            </button>
+
+            {/* Google Drive */}
             <a
               href="/dashboard"
               className="text-left rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-6 hover:border-blue-400 hover:shadow-md transition-all group focus:outline-none focus:ring-2 focus:ring-blue-400 block"
             >
-              <div className="flex items-start gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 group-hover:bg-blue-200 dark:group-hover:bg-blue-900/60 transition-colors">
-                  <svg
-                    className="h-6 w-6"
-                    viewBox="0 0 24 24"
-                    fill="currentColor"
-                  >
-                    <path d="M4.433 22 1 16.25l5.217-9.083L9.65 13H8.35l-5 8.667zm2.65 0 5.217-9.083-2.434-4.25h4.868L20 22zM15.85 13l2.433-4.25L20.566 2H8.35l2.433 4.167zM11.133 8.75l-1.35-2.333h4.434l-1.35 2.333z" />
-                  </svg>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400">
-                    From Google Drive
-                  </h3>
-                  <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                    Browse your Drive folders. Best for batch processing with an
-                    Excel product catalog.
-                  </p>
-                  <span className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-blue-500">
-                    Open Drive browser
-                    <svg
-                      className="h-4 w-4"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3"
-                      />
-                    </svg>
-                  </span>
-                </div>
+              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 group-hover:bg-blue-200 transition-colors mb-4">
+                <svg className="h-6 w-6" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M4.433 22 1 16.25l5.217-9.083L9.65 13H8.35l-5 8.667zm2.65 0 5.217-9.083-2.434-4.25h4.868L20 22zM15.85 13l2.433-4.25L20.566 2H8.35l2.433 4.167zM11.133 8.75l-1.35-2.333h4.434l-1.35 2.333z" />
+                </svg>
               </div>
+              <h3 className="font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400">
+                From Google Drive
+              </h3>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                Batch process from Drive with an Excel product catalog.
+              </p>
+              <span className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-blue-500">
+                Open Drive
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+                </svg>
+              </span>
             </a>
           </div>
 
@@ -622,10 +672,17 @@ function AuthenticatedHome() {
                       href={`/jobs/${job.job_id}`}
                       className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-3 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
                     >
-                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                        {job.product_id}
-                      </span>
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                          {job.product_id}
+                        </span>
+                        {job.job_type === "image_only" && (
+                          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded">
+                            Studio
+                          </span>
+                        )}
+                      </div>
+                      <span className={`shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${
                         job.status === "completed"
                           ? "bg-green-50 text-green-600 dark:bg-green-950/40 dark:text-green-400"
                           : job.status === "failed"
@@ -645,12 +702,103 @@ function AuthenticatedHome() {
     );
   }
 
-  // Upload form + results view
+  // Image Studio form view
+  if (activeMode === "image_studio") {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+        <NavBar />
+
+        <main className="mx-auto max-w-2xl px-4 py-8 sm:px-6">
+          {/* Header + back */}
+          <div className="flex items-center gap-3 mb-6">
+            <button
+              type="button"
+              onClick={() => { setActiveMode("hub"); setSubmitBanner(null); }}
+              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+              </svg>
+              Back
+            </button>
+            <div className="h-4 w-px bg-gray-300 dark:bg-gray-700" />
+            <div className="flex items-center gap-2">
+              <span className="flex h-6 w-6 items-center justify-center rounded-md bg-amber-100 dark:bg-amber-900/50">
+                <svg className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909" />
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                </svg>
+              </span>
+              <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Image Studio</h2>
+              <span className="text-xs font-medium bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded">
+                Beta
+              </span>
+            </div>
+          </div>
+
+          {/* Submit feedback banner */}
+          {submitBanner && (
+            <div
+              role="status"
+              aria-live="polite"
+              className={`mb-4 flex items-center justify-between rounded-lg border px-4 py-3 text-sm ${
+                submitBanner.type === "success"
+                  ? "border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300"
+                  : "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-400"
+              }`}
+            >
+              <span>{submitBanner.message}</span>
+              {submitBanner.type === "success" && (
+                <Link
+                  href="/jobs"
+                  className="ml-4 shrink-0 font-medium underline underline-offset-2 hover:no-underline"
+                >
+                  Go to Jobs
+                </Link>
+              )}
+              <button
+                type="button"
+                onClick={() => setSubmitBanner(null)}
+                className="ml-4 shrink-0 text-current opacity-60 hover:opacity-100"
+                aria-label="Dismiss"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          <ImageStudioForm
+            onSubmit={handleImageStudioSubmit}
+            isSubmitting={studioSubmitting}
+            isLocked={studioLocked}
+          />
+        </main>
+      </div>
+    );
+  }
+
+  // Full Listing form + results view
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       <NavBar />
 
       <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
+        {/* Header + back */}
+        <div className="flex items-center gap-3 mb-6">
+          <button
+            type="button"
+            onClick={() => { setActiveMode("hub"); setSubmitBanner(null); }}
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+            </svg>
+            Back
+          </button>
+          <div className="h-4 w-px bg-gray-300 dark:bg-gray-700" />
+          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Full Listing</h2>
+        </div>
+
         <Card className="shadow-sm">
           <CardContent className="space-y-5 pt-6">
             <ImageUploader files={files} onChange={setFiles} disabled={isRunning} />
