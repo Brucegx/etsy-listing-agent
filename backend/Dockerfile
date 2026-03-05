@@ -32,9 +32,18 @@ COPY --from=builder /venv /venv
 # Copy backend application source
 COPY backend/app ./app
 
+# Copy proprietary skills + config (gitignored, included via local deploy only).
+# These directories are required at runtime for prompt templates and validation.
+# Deploy with `railway up` (local build context) — NOT from GitHub.
+COPY skills/ ./skills/
+COPY config/ ./config/
+
 # Activate the virtualenv
 ENV PATH="/venv/bin:$PATH"
 ENV PYTHONPATH="/app"
+
+# PROJECT_ROOT tells the engine where to find skills/ and config/
+ENV PROJECT_ROOT="/app"
 
 # Runtime data directories — these will be bind-mounted as Docker volumes
 RUN mkdir -p /data/storage

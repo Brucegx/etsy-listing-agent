@@ -33,6 +33,19 @@ class Settings(BaseSettings):
     smtp_from_email: str = ""
     smtp_app_password: str = ""
 
+    # Cloudflare R2 (S3-compatible object storage)
+    r2_endpoint_url: str = ""
+    r2_access_key_id: str = ""
+    r2_secret_access_key: str = ""
+    r2_bucket_name: str = ""
+    r2_public_url: str = ""
+
+    # Cross-domain auth (production)
+    cookie_domain: str = ""
+
+    # Additional CORS origins (comma-separated)
+    extra_cors_origins: str = ""
+
     # Logging
     log_level: str = "INFO"
 

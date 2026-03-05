@@ -1,0 +1,45 @@
+# ── Docker build context filter ──────────────────────────────────────────────
+# NOTE: skills/ and config/ are intentionally NOT listed here.
+# They are gitignored (not on GitHub) but MUST be included in Docker builds.
+# Always deploy with `railway up` (local context), not from GitHub.
+
+# Version control
+.git
+.gitignore
+
+# Dependencies (rebuilt in Docker)
+node_modules
+__pycache__
+*.pyc
+.venv
+backend/.venv
+
+# IDE / OS
+.vscode
+.idea
+*.swp
+.DS_Store
+
+# Test artifacts
+frontend/test-results
+frontend/playwright-report
+htmlcov
+.coverage
+.pytest_cache
+
+# Claude Code
+.claude
+.team
+
+# Docker (avoid recursive copy)
+docker-compose.yml
+
+# Docs
+*.md
+!skills/**/*.md
+!config/**/*.md
+
+# Environment files (secrets — never include)
+.env
+.env.*
+!.env.example
