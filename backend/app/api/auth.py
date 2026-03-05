@@ -30,6 +30,20 @@ def _verify_session(cookie: str) -> str | None:
         return google_id
     return None
 
+def _cookie_params(is_prod: bool) -> dict:
+    """Return cookie kwargs for production (cross-domain) or local dev."""
+    params: dict = {"httponly": True}
+    if is_prod:
+        params["secure"] = True
+        params["samesite"] = "none"
+        if settings.cookie_domain:
+            params["domain"] = settings.cookie_domain
+    else:
+        params["secure"] = False
+        params["samesite"] = "lax"
+    return params
+
+
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
@@ -76,22 +90,19 @@ async def callback(request: Request, code: str | None = None) -> RedirectRespons
         db.close()
 
     is_prod = bool(settings.google_client_id)
+    cookie_kwargs = _cookie_params(is_prod)
     redirect = RedirectResponse(url=settings.frontend_url, status_code=302)
     redirect.set_cookie(
         key="session",
         value=_sign_session(user_info["id"]),
-        httponly=True,
-        secure=is_prod,
-        samesite="lax",
         max_age=7 * 24 * 3600,
+        **cookie_kwargs,
     )
     redirect.set_cookie(
         key="access_token",
         value=access_token,
-        httponly=True,
-        secure=is_prod,
-        samesite="lax",
         max_age=3600,  # 1 hour, matches Google token expiry
+        **cookie_kwargs,
     )
     return redirect
 
@@ -140,12 +151,13 @@ async def dev_login() -> RedirectResponse:
     finally:
         db.close()
 
+    cookie_kwargs = _cookie_params(is_prod=False)
     redirect = RedirectResponse(url=settings.frontend_url, status_code=302)
     redirect.set_cookie(
-        key="session", value=_sign_session("dev_user"), httponly=True, samesite="lax", max_age=7 * 24 * 3600,
+        key="session", value=_sign_session("dev_user"), max_age=7 * 24 * 3600, **cookie_kwargs,
     )
     redirect.set_cookie(
-        key="access_token", value="dev_token", httponly=True, samesite="lax", max_age=3600,
+        key="access_token", value="dev_token", max_age=3600, **cookie_kwargs,
     )
     return redirect
 
@@ -153,7 +165,15 @@ async def dev_login() -> RedirectResponse:
 @router.post("/logout")
 async def logout(request: Request) -> RedirectResponse:
     """Clear session and access_token cookies."""
+    is_prod = bool(settings.google_client_id)
+    delete_kwargs: dict = {}
+    if is_prod:
+        delete_kwargs["secure"] = True
+        delete_kwargs["samesite"] = "none"
+        if settings.cookie_domain:
+            delete_kwargs["domain"] = settings.cookie_domain
+
     redirect = RedirectResponse(url=settings.frontend_url, status_code=302)
-    redirect.delete_cookie("session")
-    redirect.delete_cookie("access_token")
+    redirect.delete_cookie("session", **delete_kwargs)
+    redirect.delete_cookie("access_token", **delete_kwargs)
     return redirect

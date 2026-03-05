@@ -10,7 +10,9 @@ logger = logging.getLogger(__name__)
 
 # Use sync engine since SQLite + sync is simpler and we're not truly concurrent
 _db_url = settings.database_url.replace("+aiosqlite", "")
-engine = create_engine(_db_url, connect_args={"check_same_thread": False})
+_is_sqlite = _db_url.startswith("sqlite")
+_connect_args = {"check_same_thread": False} if _is_sqlite else {}
+engine = create_engine(_db_url, connect_args=_connect_args)
 SessionLocal = sessionmaker(bind=engine, class_=Session)
 
 

@@ -55,9 +55,16 @@ app = FastAPI(title="Etsy Listing Agent API", lifespan=lifespan)
 # the X-Request-ID header (including preflight OPTIONS responses).
 app.add_middleware(RequestIdMiddleware)
 
+_cors_origins = [settings.frontend_url]
+if settings.extra_cors_origins:
+    _cors_origins.extend(
+        o.strip() for o in settings.extra_cors_origins.split(",") if o.strip()
+    )
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_url],
+    allow_origins=_cors_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*", "X-Request-ID"],

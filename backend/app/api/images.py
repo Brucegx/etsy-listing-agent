@@ -10,9 +10,9 @@ Stable URL pattern: /api/images/{job_id}/{path}
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 
-from app.services.storage import get_storage
+from app.services.storage import R2StorageService, get_storage
 from app.services.temp_manager import TempManager
 
 router = APIRouter(prefix="/api/images", tags=["images"])
@@ -26,16 +26,22 @@ _MEDIA_TYPES = {
 
 
 @router.get("/{job_id}/{path:path}")
-async def serve_image(job_id: str, path: str) -> FileResponse:
+async def serve_image(job_id: str, path: str) -> Response:
     """Serve a generated image.
 
-    Looks up the file in persistent storage first (new jobs).  Falls back
+    When R2 storage is active, returns a 302 redirect to the R2 public URL.
+    Otherwise looks up the file in persistent local storage, falling back
     to the legacy TempManager directory for old SSE-stream runs.
 
     Path traversal is blocked by validating the resolved path stays within
     the expected directory.
     """
     storage = get_storage()
+
+    # --- R2 redirect mode ---
+    if isinstance(storage, R2StorageService):
+        url = storage.get_public_url(job_id, path)
+        return RedirectResponse(url=url, status_code=302)
 
     # --- Persistent storage (new async jobs) ---
     storage_path = storage.url_to_path(f"/api/images/{job_id}/{path}")
