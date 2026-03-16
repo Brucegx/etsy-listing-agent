@@ -26,6 +26,7 @@ Variation hints injected into the prompt_node user_message per index:
   index 5+ — "Variation {N}: explore a distinct angle or composition"
 """
 
+import asyncio
 import io
 import json
 import logging
@@ -386,49 +387,55 @@ async def generate_image_studio_images(
             variation_index, count, job_id, direction,
         )
 
-        try:
-            image_bytes = await loop.run_in_executor(
-                None,
-                functools.partial(
-                    generate_image_gemini,
-                    prompt=prompt,
-                    reference_image_paths=ref_paths if ref_paths else None,
-                    resolution="1k",
-                    api_key=api_key,
-                ),
-            )
-
-            # Post-process: crop to aspect ratio
-            image_bytes = _crop_to_aspect_ratio(image_bytes, aspect_ratio)
-
-            # Save to persistent storage
-            filename = f"{product_id}_{direction}_{variation_index}.png"
-            image_path = output_dir / filename
-            image_path.write_bytes(image_bytes)
-
-            # Build stable URL
-            rel = image_path.relative_to(storage_job_dir)
-            url = f"/api/images/{job_id}/{str(rel).replace(chr(92), '/')}"
-            image_urls.append(url)
-            generated += 1
-
-            # Update progress (40-95 range for image generation)
-            progress = 40 + int(variation_index / count * 55)
-            db = get_db()
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
             try:
-                job_service.update_status(
-                    db, job_id, status="generating", progress=progress,
-                    stage_name=f"image_{variation_index}_of_{count}",
+                image_bytes = await loop.run_in_executor(
+                    None,
+                    functools.partial(
+                        generate_image_gemini,
+                        prompt=prompt,
+                        reference_image_paths=ref_paths if ref_paths else None,
+                        resolution="1k",
+                        api_key=api_key,
+                    ),
                 )
-            finally:
-                db.close()
 
-        except Exception as exc:
-            logger.warning(
-                "Failed to generate variation %d/%d for job %s: %s",
-                variation_index, count, job_id, exc,
-            )
-            failed += 1
+                # Post-process: crop to aspect ratio
+                image_bytes = _crop_to_aspect_ratio(image_bytes, aspect_ratio)
+
+                # Save to storage
+                filename = f"{product_id}_{direction}_{variation_index}.png"
+                storage_filename = f"image_studio/{filename}"
+                url = storage.store_file(job_id, storage_filename, image_bytes)
+                image_urls.append(url)
+                generated += 1
+
+                # Update progress (40-95 range for image generation)
+                progress = 40 + int(variation_index / count * 55)
+                db = get_db()
+                try:
+                    job_service.update_status(
+                        db, job_id, status="generating", progress=progress,
+                        stage_name=f"image_{variation_index}_of_{count}",
+                    )
+                finally:
+                    db.close()
+                break  # success, no more retries
+
+            except Exception as exc:
+                if attempt < max_retries:
+                    logger.warning(
+                        "Attempt %d/%d failed for variation %d of job %s: %s — retrying",
+                        attempt, max_retries, variation_index, job_id, exc,
+                    )
+                    await asyncio.sleep(2 * attempt)  # backoff
+                else:
+                    logger.warning(
+                        "Failed to generate variation %d/%d for job %s after %d attempts: %s",
+                        variation_index, count, job_id, max_retries, exc,
+                    )
+                    failed += 1
 
     logger.info(
         "Image Studio generation complete for job %s — %d generated, %d failed",

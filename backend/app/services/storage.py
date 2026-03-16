@@ -192,6 +192,20 @@ class R2StorageService:
                 urls.append(self.store_file(job_id, filename, f.read_bytes()))
         return urls
 
+    def job_dir(self, job_id: str) -> Path:
+        """Return a temporary local directory for image processing before R2 upload."""
+        d = Path("/tmp") / "r2-staging" / "jobs" / job_id
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def resolve(self, job_id: str, filename: str) -> Path:
+        """Return the local staging path for a file."""
+        return Path("/tmp") / "r2-staging" / "jobs" / job_id / filename
+
+    def url_to_path(self, url_path: str) -> Path | None:
+        """Not applicable for R2 — images are served via redirect."""
+        return None
+
     def delete_job(self, job_id: str) -> None:
         prefix = f"jobs/{job_id}/"
         resp = self._client.list_objects_v2(

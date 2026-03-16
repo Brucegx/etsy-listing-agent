@@ -66,6 +66,13 @@ async def callback(request: Request, code: str | None = None) -> RedirectRespons
 
     user_info = await get_user_info(access_token)
 
+    # Email whitelist check
+    if settings.allowed_emails:
+        allowed = {e.strip().lower() for e in settings.allowed_emails.split(",") if e.strip()}
+        email = user_info.get("email", "").lower()
+        if email not in allowed:
+            raise HTTPException(status_code=403, detail="Access denied")
+
     # Upsert user in DB
     db = get_db()
     try:

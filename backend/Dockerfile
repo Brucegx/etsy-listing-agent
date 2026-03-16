@@ -9,17 +9,18 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /build
 
 # Copy the root engine package (local editable dep of the backend)
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock README.md ./
 COPY src/ ./src/
 
 # Copy backend package files
 COPY backend/pyproject.toml backend/uv.lock ./backend/
 
 # Create venv and install all backend deps.
-# We install the root engine package as a regular wheel first, then the backend.
+# Install the root engine package as a proper wheel first (not editable),
+# then the backend with --no-sources to skip the editable path reference.
 RUN uv venv /venv --python python3.11
 RUN uv pip install --python /venv/bin/python .
-RUN uv pip install --python /venv/bin/python ./backend
+RUN uv pip install --python /venv/bin/python --no-sources ./backend
 
 # ── Stage 2: runtime ──────────────────────────────────────────────────────────
 FROM python:3.11-slim AS runtime

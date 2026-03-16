@@ -34,10 +34,9 @@ htmlcov
 # Docker (avoid recursive copy)
 docker-compose.yml
 
-# Docs
-*.md
-!skills/**/*.md
-!config/**/*.md
+# Docs (keep README.md for hatchling build + skill .md files)
+docs/
+.team/
 
 # Environment files (secrets — never include)
 .env

@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     # Additional CORS origins (comma-separated)
     extra_cors_origins: str = ""
 
+    # Login whitelist (comma-separated emails; empty = allow all)
+    allowed_emails: str = ""
+
     # Logging
     log_level: str = "INFO"
 

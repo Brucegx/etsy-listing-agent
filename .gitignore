@@ -5,8 +5,9 @@
 backend/.env
 
 # Proprietary skills, prompts, and config (core IP)
-skills/
-config/
+# NOTE: tracked in private repo for Railway deployment (DEC-015)
+# skills/
+# config/
 test-agent-sdk/
 samples/
 
