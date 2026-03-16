@@ -572,30 +572,25 @@ function AuthenticatedHome() {
           </div>
 
           <div className="grid sm:grid-cols-3 gap-5">
-            {/* Full Listing */}
-            <button
-              type="button"
-              onClick={() => { setActiveMode("full_listing"); setSubmitBanner(null); }}
-              className="text-left rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-6 hover:border-orange-400 hover:shadow-md transition-all group focus:outline-none focus:ring-2 focus:ring-orange-400"
+            {/* Full Listing — Coming Soon */}
+            <div
+              className="relative text-left rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 p-6 opacity-60 cursor-not-allowed"
             >
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100 dark:bg-orange-900/40 text-orange-600 dark:text-orange-400 group-hover:bg-orange-200 transition-colors mb-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-gray-200 dark:bg-gray-800 text-gray-400 dark:text-gray-500 mb-4">
                 <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" />
                 </svg>
               </div>
-              <h3 className="font-semibold text-gray-900 dark:text-gray-100 group-hover:text-orange-600 dark:group-hover:text-orange-400">
+              <h3 className="font-semibold text-gray-400 dark:text-gray-500">
                 Full Listing
               </h3>
-              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              <p className="mt-1 text-sm text-gray-400 dark:text-gray-500">
                 SEO title, tags, description + 10 AI product photos.
               </p>
-              <span className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-orange-500">
-                Get started
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
-                </svg>
+              <span className="mt-3 inline-flex items-center gap-1 text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-2 py-0.5 rounded-full">
+                Coming Soon
               </span>
-            </button>
+            </div>
 
             {/* Image Studio */}
             <button
@@ -623,29 +618,25 @@ function AuthenticatedHome() {
               </span>
             </button>
 
-            {/* Google Drive */}
-            <a
-              href="/dashboard"
-              className="text-left rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-6 hover:border-blue-400 hover:shadow-md transition-all group focus:outline-none focus:ring-2 focus:ring-blue-400 block"
+            {/* Batch Processing — Coming Soon */}
+            <div
+              className="relative text-left rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 p-6 opacity-60 cursor-not-allowed"
             >
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 group-hover:bg-blue-200 transition-colors mb-4">
-                <svg className="h-6 w-6" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M4.433 22 1 16.25l5.217-9.083L9.65 13H8.35l-5 8.667zm2.65 0 5.217-9.083-2.434-4.25h4.868L20 22zM15.85 13l2.433-4.25L20.566 2H8.35l2.433 4.167zM11.133 8.75l-1.35-2.333h4.434l-1.35 2.333z" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-gray-200 dark:bg-gray-800 text-gray-400 dark:text-gray-500 mb-4">
+                <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
                 </svg>
               </div>
-              <h3 className="font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400">
-                From Google Drive
+              <h3 className="font-semibold text-gray-400 dark:text-gray-500">
+                Batch Processing
               </h3>
-              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                Batch process from Drive with an Excel product catalog.
+              <p className="mt-1 text-sm text-gray-400 dark:text-gray-500">
+                Process multiple products at once with an Excel catalog.
               </p>
-              <span className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-blue-500">
-                Open Drive
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
-                </svg>
+              <span className="mt-3 inline-flex items-center gap-1 text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-2 py-0.5 rounded-full">
+                Coming Soon
               </span>
-            </a>
+            </div>
           </div>
 
           {/* Recent jobs */}

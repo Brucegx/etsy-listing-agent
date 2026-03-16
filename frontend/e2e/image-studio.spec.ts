@@ -153,14 +153,15 @@ test.describe("Image Studio — hub navigation", () => {
       page.getByRole("heading", { name: /what would you like to create/i })
     ).toBeVisible({ timeout: 5_000 });
 
-    // Full Listing card
-    await expect(page.getByRole("button", { name: /full listing/i })).toBeVisible();
+    // Full Listing card (grayed out, Coming Soon)
+    await expect(page.getByText("Full Listing")).toBeVisible();
+    await expect(page.getByText("Coming Soon").first()).toBeVisible();
 
-    // Image Studio card
+    // Image Studio card (active)
     await expect(page.getByRole("button", { name: /image studio/i })).toBeVisible();
 
-    // Google Drive card (link)
-    await expect(page.getByRole("link", { name: /from google drive/i })).toBeVisible();
+    // Batch Processing card (grayed out, Coming Soon)
+    await expect(page.getByText("Batch Processing")).toBeVisible();
   });
 
   test("clicking Image Studio card shows the Image Studio form", async ({
@@ -216,7 +217,7 @@ test.describe("Image Studio — hub navigation", () => {
     ).toBeVisible({ timeout: 5_000 });
   });
 
-  test("clicking Full Listing card shows the upload form", async ({
+  test("Full Listing card is disabled with Coming Soon badge", async ({
     authedPage: page,
   }) => {
     await page.route("**/api/jobs", async (route) => {
@@ -229,17 +230,11 @@ test.describe("Image Studio — hub navigation", () => {
 
     await page.goto("/");
 
-    // Click Full Listing card
-    await page.getByRole("button", { name: /full listing/i }).click();
+    // Full Listing card should not be a button (it's a div now)
+    await expect(page.getByRole("button", { name: /full listing/i })).toHaveCount(0);
 
-    // Full Listing heading and upload area should appear
-    await expect(page.getByRole("heading", { name: /full listing/i })).toBeVisible({
-      timeout: 5_000,
-    });
-
-    // Material and Size inputs should be present
-    await expect(page.getByLabel("Material")).toBeVisible();
-    await expect(page.getByLabel("Size")).toBeVisible();
+    // Should show Coming Soon badge
+    await expect(page.getByText("Coming Soon").first()).toBeVisible();
   });
 });
 

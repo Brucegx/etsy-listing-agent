@@ -14,9 +14,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { label: "Home", href: "/" },
-  { label: "Dashboard", href: "/dashboard" },
   { label: "Jobs", href: "/jobs" },
-  { label: "API Keys", href: "/keys" },
 ];
 
 export function NavBar() {
