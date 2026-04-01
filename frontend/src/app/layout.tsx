@@ -14,11 +14,11 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Etsy Listing Agent — AI Product Photography",
-    template: "%s | Etsy Listing Agent",
+    default: "Luma Studio — AI Product Photography",
+    template: "%s | Luma Studio",
   },
   description:
-    "Auto-generate professional product photos and optimized Etsy listings using AI. Upload raw product images — get studio-quality results in minutes.",
+    "Transform raw product photos into studio-quality images with AI",
 };
 
 export default function RootLayout({

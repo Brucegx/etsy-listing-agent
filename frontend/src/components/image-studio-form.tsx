@@ -57,12 +57,12 @@ const IMAGE_TYPE_OPTIONS: ImageTypeOption[] = [
     labelCn: "白底图",
     description: "Clean white background, product center stage",
     icon: <WhiteBgIcon />,
-    accentClass: "text-slate-600 dark:text-slate-300",
-    bgClass: "bg-slate-50 dark:bg-slate-900/40",
-    borderClass: "border-slate-200 dark:border-slate-700",
-    selectedBorderClass: "border-slate-500 dark:border-slate-400",
-    selectedBgClass: "bg-slate-50 dark:bg-slate-900/60",
-    iconBgClass: "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-300",
+    accentClass: "text-[#1A1A1A]",
+    bgClass: "bg-[#F5F5F0]",
+    borderClass: "border-[#E8E8E3]",
+    selectedBorderClass: "border-[#D4A853]",
+    selectedBgClass: "bg-[#D4A853]/5",
+    iconBgClass: "bg-[#F5F5F0] text-[#737373]",
   },
   {
     value: "scene",
@@ -70,12 +70,12 @@ const IMAGE_TYPE_OPTIONS: ImageTypeOption[] = [
     labelCn: "场景图",
     description: "Lifestyle context with props and setting",
     icon: <SceneIcon />,
-    accentClass: "text-emerald-700 dark:text-emerald-300",
-    bgClass: "bg-emerald-50 dark:bg-emerald-900/30",
-    borderClass: "border-emerald-200 dark:border-emerald-800",
-    selectedBorderClass: "border-emerald-500 dark:border-emerald-400",
-    selectedBgClass: "bg-emerald-50 dark:bg-emerald-900/50",
-    iconBgClass: "bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-300",
+    accentClass: "text-[#1A1A1A]",
+    bgClass: "bg-[#F5F5F0]",
+    borderClass: "border-[#E8E8E3]",
+    selectedBorderClass: "border-[#D4A853]",
+    selectedBgClass: "bg-[#D4A853]/5",
+    iconBgClass: "bg-emerald-50 text-emerald-600",
   },
   {
     value: "model",
@@ -83,12 +83,12 @@ const IMAGE_TYPE_OPTIONS: ImageTypeOption[] = [
     labelCn: "模特图",
     description: "Worn on a person for scale and appeal",
     icon: <ModelIcon />,
-    accentClass: "text-violet-700 dark:text-violet-300",
-    bgClass: "bg-violet-50 dark:bg-violet-900/30",
-    borderClass: "border-violet-200 dark:border-violet-800",
-    selectedBorderClass: "border-violet-500 dark:border-violet-400",
-    selectedBgClass: "bg-violet-50 dark:bg-violet-900/50",
-    iconBgClass: "bg-violet-100 dark:bg-violet-900/60 text-violet-600 dark:text-violet-300",
+    accentClass: "text-[#1A1A1A]",
+    bgClass: "bg-[#F5F5F0]",
+    borderClass: "border-[#E8E8E3]",
+    selectedBorderClass: "border-[#D4A853]",
+    selectedBgClass: "bg-[#D4A853]/5",
+    iconBgClass: "bg-violet-50 text-violet-600",
   },
   {
     value: "detail",
@@ -96,12 +96,12 @@ const IMAGE_TYPE_OPTIONS: ImageTypeOption[] = [
     labelCn: "细节图",
     description: "Close-up macro shots of texture and craft",
     icon: <DetailIcon />,
-    accentClass: "text-amber-700 dark:text-amber-300",
-    bgClass: "bg-amber-50 dark:bg-amber-900/30",
-    borderClass: "border-amber-200 dark:border-amber-800",
-    selectedBorderClass: "border-amber-500 dark:border-amber-400",
-    selectedBgClass: "bg-amber-50 dark:bg-amber-900/50",
-    iconBgClass: "bg-amber-100 dark:bg-amber-900/60 text-amber-600 dark:text-amber-300",
+    accentClass: "text-[#1A1A1A]",
+    bgClass: "bg-[#F5F5F0]",
+    borderClass: "border-[#E8E8E3]",
+    selectedBorderClass: "border-[#D4A853]",
+    selectedBgClass: "bg-[#D4A853]/5",
+    iconBgClass: "bg-[#D4A853]/10 text-[#D4A853]",
   },
 ];
 
@@ -124,7 +124,7 @@ const RESOLUTION_OPTIONS: { value: ImageResolution; label: string; desc: string 
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-2.5">
+    <p className="text-xs font-semibold uppercase tracking-wide text-[#737373] mb-2.5">
       {children}
     </p>
   );
@@ -144,7 +144,7 @@ function SegmentedControl<T extends string | number>({
   renderOption?: (v: T) => React.ReactNode;
 }) {
   return (
-    <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800/60 p-0.5 gap-0.5">
+    <div className="inline-flex rounded-lg border border-[#E8E8E3] bg-[#F5F5F0] p-0.5 gap-0.5">
       {options.map((opt) => {
         const isSelected = opt === value;
         return (
@@ -155,11 +155,11 @@ function SegmentedControl<T extends string | number>({
             disabled={disabled}
             className={`
               relative px-4 py-1.5 rounded-md text-sm font-medium transition-all
-              focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1
+              focus:outline-none focus:ring-2 focus:ring-[#D4A853]/30 focus:ring-offset-1
               ${
                 isSelected
-                  ? "bg-white dark:bg-gray-900 shadow-sm text-gray-900 dark:text-gray-100"
-                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                  ? "bg-white shadow-sm text-[#D4A853] border border-[#D4A853]/40"
+                  : "text-[#737373] hover:text-[#1A1A1A]"
               }
               ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}
             `}
@@ -230,12 +230,12 @@ export function ImageStudioForm({
   }, [canSubmit, files, selectedCategory, additionalPrompt, productInfo, count, aspectRatio, selectedResolution, onSubmit]);
 
   const textareaClass =
-    "w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm placeholder:text-muted-foreground focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/30 disabled:cursor-not-allowed disabled:opacity-50 resize-none";
+    "w-full rounded-lg border border-[#E8E8E3] bg-[#F5F5F0] px-3 py-2.5 text-sm text-[#1A1A1A] placeholder:text-[#A3A3A3] focus:border-[#D4A853] focus:outline-none focus:ring-2 focus:ring-[#D4A853]/30 disabled:cursor-not-allowed disabled:opacity-50 resize-none";
 
   return (
     <div className="space-y-6">
       {/* Step 1 — Upload */}
-      <Card className="border-gray-200 dark:border-gray-700 shadow-none">
+      <Card className="bg-white border-[#E8E8E3] shadow-sm">
         <CardContent className="pt-5">
           <SectionLabel>1. Upload your product photo</SectionLabel>
           <ImageUploader
@@ -247,7 +247,7 @@ export function ImageStudioForm({
       </Card>
 
       {/* Step 2 — Image type */}
-      <Card className="border-gray-200 dark:border-gray-700 shadow-none">
+      <Card className="bg-white border-[#E8E8E3] shadow-sm">
         <CardContent className="pt-5">
           <SectionLabel>2. Choose image type (optional)</SectionLabel>
           <div className="grid grid-cols-2 gap-3">
@@ -263,17 +263,17 @@ export function ImageStudioForm({
                   }
                   className={`
                     relative text-left rounded-xl border-2 p-4 transition-all
-                    focus:outline-none focus:ring-2 focus:ring-amber-400
+                    focus:outline-none focus:ring-2 focus:ring-[#D4A853]/30
                     disabled:cursor-not-allowed disabled:opacity-50
                     ${
                       isSelected
                         ? `${opt.selectedBorderClass} ${opt.selectedBgClass} shadow-sm`
-                        : `${opt.borderClass} bg-white dark:bg-gray-900 hover:shadow-sm hover:${opt.selectedBorderClass}`
+                        : `${opt.borderClass} bg-[#F5F5F0] hover:border-[#D4D4CF] hover:shadow-sm`
                     }
                   `}
                 >
                   {isSelected && (
-                    <span className="absolute top-2.5 right-2.5 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500">
+                    <span className="absolute top-2.5 right-2.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#D4A853]">
                       <svg className="h-2.5 w-2.5 text-white" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                       </svg>
@@ -283,11 +283,11 @@ export function ImageStudioForm({
                     {opt.icon}
                   </div>
                   <div>
-                    <p className={`text-sm font-semibold leading-tight ${isSelected ? opt.accentClass : "text-gray-900 dark:text-gray-100"}`}>
+                    <p className={`text-sm font-semibold leading-tight ${isSelected ? "text-[#D4A853]" : "text-[#1A1A1A]"}`}>
                       {opt.label}
                       <span className="ml-1.5 text-xs font-normal opacity-60">{opt.labelCn}</span>
                     </p>
-                    <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 leading-snug">
+                    <p className="mt-0.5 text-xs text-[#737373] leading-snug">
                       {opt.description}
                     </p>
                   </div>
@@ -295,19 +295,19 @@ export function ImageStudioForm({
               );
             })}
           </div>
-          <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+          <p className="mt-2 text-xs text-[#737373]">
             Leave unselected to let AI choose the best type automatically.
           </p>
         </CardContent>
       </Card>
 
       {/* Step 4 — Count + Ratio + Resolution */}
-      <Card className="border-gray-200 dark:border-gray-700 shadow-none">
+      <Card className="bg-white border-[#E8E8E3] shadow-sm">
         <CardContent className="pt-5 space-y-5">
           <SectionLabel>3. Output settings</SectionLabel>
 
           <div className="space-y-2.5">
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            <p className="text-sm font-medium text-[#1A1A1A]">
               Number of images
             </p>
             <SegmentedControl
@@ -320,7 +320,7 @@ export function ImageStudioForm({
           </div>
 
           <div className="space-y-2.5">
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            <p className="text-sm font-medium text-[#1A1A1A]">
               Aspect ratio
             </p>
             <SegmentedControl
@@ -341,7 +341,7 @@ export function ImageStudioForm({
           </div>
 
           <div className="space-y-2.5">
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            <p className="text-sm font-medium text-[#1A1A1A]">
               Resolution
             </p>
             <SegmentedControl
@@ -364,12 +364,12 @@ export function ImageStudioForm({
       </Card>
 
       {/* Step 5 — Optional text fields */}
-      <Card className="border-gray-200 dark:border-gray-700 shadow-none">
+      <Card className="bg-white border-[#E8E8E3] shadow-sm">
         <CardContent className="pt-5 space-y-4">
           <SectionLabel>4. Additional details (optional)</SectionLabel>
 
           <div className="space-y-1.5">
-            <label htmlFor="product-info" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label htmlFor="product-info" className="block text-sm font-medium text-[#1A1A1A]">
               Product description
             </label>
             <textarea
@@ -381,13 +381,13 @@ export function ImageStudioForm({
               placeholder="e.g. 925银戒指，2cm宽，蓝色锆石"
               className={textareaClass}
             />
-            <p className="text-xs text-gray-400 dark:text-gray-500">
+            <p className="text-xs text-[#737373]">
               Help the AI understand your product — material, size, color, style.
             </p>
           </div>
 
           <div className="space-y-1.5">
-            <label htmlFor="style-prompt" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label htmlFor="style-prompt" className="block text-sm font-medium text-[#1A1A1A]">
               Style prompt
             </label>
             <textarea
@@ -399,7 +399,7 @@ export function ImageStudioForm({
               placeholder="e.g. 背景要有绿植，暖色调光线，柔和散景"
               className={textareaClass}
             />
-            <p className="text-xs text-gray-400 dark:text-gray-500">
+            <p className="text-xs text-[#737373]">
               Describe the mood, lighting, background, or props you want.
             </p>
           </div>
@@ -411,11 +411,11 @@ export function ImageStudioForm({
         {/* Cost preview */}
         {!isLocked && (
           hasInsufficientCredits ? (
-            <p className="text-xs font-medium text-red-600 dark:text-red-400">
+            <p className="text-xs font-medium text-red-600">
               Insufficient credits ({creditBalance} remaining, need {estimatedCost})
             </p>
           ) : (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-[#737373]">
               {isAdmin
                 ? `Estimated cost: ${estimatedCost} credits (unlimited)`
                 : `Estimated cost: ${estimatedCost} credits`}
@@ -428,7 +428,7 @@ export function ImageStudioForm({
             disabled={!canSubmit}
             size="lg"
             aria-busy={isSubmitting}
-            className="bg-amber-500 hover:bg-amber-600 text-white font-semibold shadow-sm"
+            className={`font-semibold shadow-sm ${canSubmit ? "bg-[#D4A853] hover:bg-[#C49A48] text-white" : "bg-[#D4A853]/30 text-white/50"}`}
           >
             {isSubmitting && (
               <svg
@@ -449,7 +449,7 @@ export function ImageStudioForm({
               : "Generate Images"}
           </Button>
           {!canSubmit && !isSubmitting && !isLocked && !hasInsufficientCredits && (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-[#737373]">
               Upload at least one product photo to continue.
             </p>
           )}
