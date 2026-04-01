@@ -373,6 +373,8 @@ async function submitImageStudioJob(
   formData.append("aspect_ratio", config.aspect_ratio);
   formData.append("additional_prompt", config.additional_prompt);
   if (productInfo) formData.append("product_info", productInfo);
+  formData.append("model", config.model);
+  formData.append("resolution", config.resolution);
 
   const res = await fetch(`${API_BASE}/api/jobs/image-studio`, {
     method: "POST",
@@ -382,7 +384,13 @@ async function submitImageStudioJob(
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || "Failed to submit Image Studio job");
+    const detail = Array.isArray(err.detail)
+      ? err.detail.map((e: { msg?: string; loc?: string[] }) => `${e.loc?.join(".")}: ${e.msg}`).join("; ")
+      : err.detail || "Failed to submit Image Studio job";
+    if (res.status === 402) {
+      throw Object.assign(new Error(detail), { status: 402 });
+    }
+    throw new Error(detail);
   }
 
   return res.json();
@@ -391,6 +399,8 @@ async function submitImageStudioJob(
 // ─── Authenticated home hub ─────────────────────────────────────────────────
 
 function AuthenticatedHome() {
+  const { user } = useAuth();
+
   // Hub mode state
   const [activeMode, setActiveMode] = useState<"hub" | "full_listing" | "image_studio">("hub");
 
@@ -535,7 +545,13 @@ function AuthenticatedHome() {
         if (studioTimerRef.current) clearTimeout(studioTimerRef.current);
         studioTimerRef.current = setTimeout(() => setStudioLocked(false), POST_SUBMIT_LOCK_MS);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Failed to submit Image Studio job";
+        const isInsufficientCredits =
+          err instanceof Error && (err as Error & { status?: number }).status === 402;
+        const msg = isInsufficientCredits
+          ? "Insufficient credits — please contact support to top up your balance."
+          : err instanceof Error
+          ? err.message
+          : "Failed to submit Image Studio job";
         setSubmitBanner({ type: "error", message: msg });
       } finally {
         setStudioSubmitting(false);
@@ -762,6 +778,8 @@ function AuthenticatedHome() {
             onSubmit={handleImageStudioSubmit}
             isSubmitting={studioSubmitting}
             isLocked={studioLocked}
+            creditBalance={user?.credit_balance}
+            isAdmin={user?.is_admin}
           />
         </main>
       </div>

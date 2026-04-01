@@ -134,7 +134,14 @@ async def me(request: Request) -> dict:
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
 
-    return {"google_id": user.google_id, "email": user.email, "name": user.name}
+    return {
+        "google_id": user.google_id,
+        "email": user.email,
+        "name": user.name,
+        "is_admin": settings.is_admin(user.email),
+        "credit_balance": user.credit_balance,
+        "credits_used": user.credits_used,
+    }
 
 
 @router.get("/dev-login")

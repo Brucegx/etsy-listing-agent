@@ -23,7 +23,7 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   auth: {
-    me: () => fetchAPI<{ google_id: string; email: string; name: string }>("/api/auth/me"),
+    me: () => fetchAPI<{ google_id: string; email: string; name: string; is_admin?: boolean }>("/api/auth/me"),
     loginUrl: () => `${API_BASE}/api/auth/login`,
     logout: () => fetchAPI("/api/auth/logout", { method: "POST" }),
   },

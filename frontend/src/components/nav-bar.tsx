@@ -75,6 +75,26 @@ export function NavBar() {
         <div className="flex items-center gap-2">
           {isAuthenticated ? (
             <>
+              {/* Credit balance display */}
+              {user?.is_admin ? (
+                <span className="hidden text-xs text-muted-foreground sm:flex items-center gap-1">
+                  <span className="opacity-60">{user.credits_used ?? 0} used</span>
+                  <span className="opacity-40">(unlimited)</span>
+                </span>
+              ) : typeof user?.credit_balance === "number" ? (
+                <span
+                  className={`hidden text-xs font-medium sm:flex items-center gap-1 px-2 py-0.5 rounded-full ${
+                    user.credit_balance <= 0
+                      ? "bg-red-100 text-red-600 dark:bg-red-950/50 dark:text-red-400"
+                      : user.credit_balance <= 20
+                      ? "bg-orange-100 text-orange-600 dark:bg-orange-950/50 dark:text-orange-400"
+                      : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+                  }`}
+                >
+                  <span aria-label="credits">💰</span>
+                  <span>{user.credit_balance} credits</span>
+                </span>
+              ) : null}
               <span className="hidden text-xs text-muted-foreground sm:block">
                 {user?.email}
               </span>

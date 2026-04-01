@@ -38,10 +38,33 @@ def _migrate_jobs_table() -> None:
         logger.info("Applied %d migration(s) to jobs table", len(migrations))
 
 
+def _migrate_users_table() -> None:
+    """Add credit columns to the users table if they don't exist yet."""
+    insp = inspect(engine)
+    if not insp.has_table("users"):
+        return
+    existing = {col["name"] for col in insp.get_columns("users")}
+    migrations: list[str] = []
+    if "credit_balance" not in existing:
+        migrations.append(
+            "ALTER TABLE users ADD COLUMN credit_balance INTEGER NOT NULL DEFAULT 100"
+        )
+    if "credits_used" not in existing:
+        migrations.append(
+            "ALTER TABLE users ADD COLUMN credits_used INTEGER NOT NULL DEFAULT 0"
+        )
+    if migrations:
+        with engine.begin() as conn:
+            for sql in migrations:
+                conn.execute(text(sql))
+        logger.info("Applied %d migration(s) to users table", len(migrations))
+
+
 def init_db() -> None:
     """Create all tables and run lightweight migrations."""
     Base.metadata.create_all(engine)
     _migrate_jobs_table()
+    _migrate_users_table()
 
 
 def get_db() -> Session:

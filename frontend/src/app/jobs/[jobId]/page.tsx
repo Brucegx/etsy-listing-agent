@@ -182,13 +182,51 @@ function formatDate(iso: string): string {
 
 /* ---------- image results card with download-all-zip ---------- */
 
+/* ---------- per-image prompt panel (admin only) ---------- */
+
+function ImagePromptPanel({ prompt }: { prompt: string }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="mt-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors select-none"
+      >
+        <svg
+          className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+        </svg>
+        {open ? "Hide Prompt" : "View Prompt"}
+      </button>
+      {open && (
+        <div className="mt-1.5 rounded-md bg-stone-50 dark:bg-stone-900/60 border border-stone-200 dark:border-stone-700 p-2.5">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-[11px] font-mono text-stone-700 dark:text-stone-300 leading-relaxed whitespace-pre-wrap break-words flex-1">
+              {prompt}
+            </p>
+            <CopyButton text={prompt} label="Copy" />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface ImageResultsCardProps {
   imageUrls: string[];
   jobId: string;
   isImageOnly: boolean;
+  prompts?: Record<string, string>;
 }
 
-function ImageResultsCard({ imageUrls, jobId, isImageOnly }: ImageResultsCardProps) {
+function ImageResultsCard({ imageUrls, jobId, isImageOnly, prompts }: ImageResultsCardProps) {
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
@@ -289,34 +327,42 @@ function ImageResultsCard({ imageUrls, jobId, isImageOnly }: ImageResultsCardPro
       </CardHeader>
       <CardContent>
         <div className={`grid ${gridCols} gap-3`}>
-          {imageUrls.map((url, idx) => (
-            <a
-              key={idx}
-              href={`${API_BASE}${url}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`group relative rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 ${borderColor} transition-colors ${isImageOnly ? "aspect-square" : "aspect-square"}`}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={`${API_BASE}${url}`}
-                alt={`Generated image ${idx + 1}`}
-                className="h-full w-full object-cover"
-                loading="lazy"
-              />
-              {/* Hover overlay with download icon */}
-              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/90 shadow">
-                  <svg className="h-4 w-4 text-gray-800" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                  </svg>
-                </span>
+          {imageUrls.map((url, idx) => {
+            const filename = url.split("/").pop() ?? "";
+            const promptText = prompts
+              ? (prompts[filename] ?? prompts[`image_${idx + 1}.png`] ?? prompts[Object.keys(prompts)[idx]])
+              : undefined;
+            return (
+              <div key={idx} className="flex flex-col">
+                <a
+                  href={`${API_BASE}${url}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`group relative rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 ${borderColor} transition-colors aspect-square`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={`${API_BASE}${url}`}
+                    alt={`Generated image ${idx + 1}`}
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                  />
+                  {/* Hover overlay with download icon */}
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/90 shadow">
+                      <svg className="h-4 w-4 text-gray-800" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                      </svg>
+                    </span>
+                  </div>
+                  <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs text-center py-1 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                    {filename.replace(/^upload_\w+_/, "").replace(/\.png$/, "") || `Image ${idx + 1}`}
+                  </span>
+                </a>
+                {promptText && <ImagePromptPanel prompt={promptText} />}
               </div>
-              <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs text-center py-1 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                {url.split("/").pop()?.replace(/^upload_\w+_/, "").replace(/\.png$/, "") ?? `Image ${idx + 1}`}
-              </span>
-            </a>
-          ))}
+            );
+          })}
         </div>
         {isImageOnly && (
           <p className="mt-3 text-xs text-muted-foreground text-center">
@@ -666,6 +712,7 @@ export default function JobDetailPage() {
                 imageUrls={job.image_urls}
                 jobId={job.job_id}
                 isImageOnly={job.job_type === "image_only"}
+                prompts={job.prompts}
               />
             )}
           </>

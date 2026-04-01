@@ -17,6 +17,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from pydantic import BaseModel, Field, field_validator
 
+from app.config import settings
 from app.database import get_db
 from app.deps import get_current_user, get_optional_user, rate_limit_user
 from app.models.job import Job, JOB_TYPE_IMAGE_ONLY
@@ -57,6 +58,8 @@ class JobResponse(BaseModel):
     cost_usd: float
     created_at: datetime
     updated_at: datetime
+    # Admin-only: prompt debug data (None for non-admins)
+    prompts: dict[str, str] | None = None
 
     model_config = {"from_attributes": True}
 
@@ -101,7 +104,20 @@ def _safe_result(raw: dict | None) -> dict | None:
     return {"listing": {k: v for k, v in listing.items() if k in _LISTING_ALLOWED_KEYS}}
 
 
-def _job_to_response(job: Job) -> JobResponse:
+def _load_prompts(job_id: str) -> dict[str, str] | None:
+    """Load prompts.json from storage for the given job. Returns None on any error."""
+    try:
+        import json as _json
+        storage = get_storage()
+        prompts_path = storage.job_dir(job_id) / "image_studio" / "prompts.json"
+        if prompts_path.exists():
+            return _json.loads(prompts_path.read_text())
+    except Exception:
+        logger.exception("Failed to load prompts.json for job %s", job_id)
+    return None
+
+
+def _job_to_response(job: Job, prompts: dict[str, str] | None = None) -> JobResponse:
     return JobResponse(
         job_id=job.job_id,
         product_id=job.product_id,
@@ -116,6 +132,7 @@ def _job_to_response(job: Job) -> JobResponse:
         cost_usd=job.cost_usd,
         created_at=job.created_at,
         updated_at=job.updated_at,
+        prompts=prompts,
     )
 
 
@@ -151,6 +168,14 @@ async def submit_image_studio(
         default="",
         description="Free-text product description (optional, supplements image analysis)",
     ),
+    model: str = Form(
+        default="gemini-3-pro-image-preview",
+        description="Gemini model: gemini-3-pro-image-preview | gemini-3.1-flash-image-preview",
+    ),
+    resolution: str = Form(
+        default="2k",
+        description="Image resolution: 1k | 2k",
+    ),
     current_user: User | None = Depends(get_optional_user),
     _rate_limit: None = Depends(rate_limit_user),
 ) -> ImageStudioSubmitResponse:
@@ -165,6 +190,7 @@ async def submit_image_studio(
     - ``model`` — model wearing the product
     - ``detail`` — macro detail close-up
     """
+    from app.services.credit_service import CREDIT_COSTS, check_credits
     from app.services.job_worker import run_image_only_job
 
     # --- Input validation ---
@@ -183,6 +209,20 @@ async def submit_image_studio(
             detail=f"Invalid aspect_ratio '{ar}'. Must be one of: 1:1, 3:4, 4:3 (or empty)",
         )
 
+    valid_models = {"gemini-3-pro-image-preview"}
+    if model not in valid_models:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid model '{model}'. Must be one of: {', '.join(sorted(valid_models))}",
+        )
+
+    valid_resolutions = {"1k", "2k"}
+    if resolution not in valid_resolutions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid resolution '{resolution}'. Must be one of: 1k, 2k",
+        )
+
     if not images:
         raise HTTPException(status_code=400, detail="At least one image is required")
     if len(images) > _STUDIO_MAX_FILES:
@@ -191,11 +231,31 @@ async def submit_image_studio(
         if img.content_type and img.content_type not in _STUDIO_ALLOWED_TYPES:
             raise HTTPException(status_code=400, detail=f"Unsupported file type: {img.content_type}")
 
+    # --- Credit check (before any DB/disk work) ---
+    if current_user is not None:
+        is_admin = settings.is_admin(current_user.email)
+        allowed, cost = check_credits(current_user, model, resolution, count, is_admin)
+        if not allowed:
+            per_image = CREDIT_COSTS.get((model, resolution), 10)
+            raise HTTPException(
+                status_code=402,
+                detail=(
+                    f"Insufficient credits. You need {cost} credits but have "
+                    f"{current_user.credit_balance}. Each image costs {per_image} credits."
+                ),
+            )
+    else:
+        cost = 0
+
     image_config = {
         "category": category,
         "count": count,
         "aspect_ratio": ar or None,
         "additional_prompt": additional_prompt.strip(),
+        "model": model,
+        "resolution": resolution,
+        "credit_cost": cost,
+        "user_id": current_user.id if current_user else None,
     }
 
     product_id = f"studio_{uuid.uuid4().hex[:8]}"
@@ -281,7 +341,12 @@ def get_job(
     if job.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    return _job_to_response(job)
+    # Admins get prompt debug data for image_only jobs
+    prompts: dict[str, str] | None = None
+    if settings.is_admin(current_user.email) and job.job_type == "image_only":
+        prompts = _load_prompts(job_id)
+
+    return _job_to_response(job, prompts=prompts)
 
 
 @router.delete(

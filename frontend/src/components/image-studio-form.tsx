@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import { ImageUploader } from "@/components/image-uploader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import type { ImageCategory, AspectRatio, ImageConfig } from "@/types";
+import type { ImageCategory, AspectRatio, ImageConfig, ImageModel, ImageResolution } from "@/types";
 
 // ─── Image type card data ───────────────────────────────────────────────────
 
@@ -112,6 +112,14 @@ const RATIO_OPTIONS: { value: AspectRatio; label: string; desc: string }[] = [
   { value: "4:3", label: "4:3", desc: "Landscape" },
 ];
 
+// Only Pro model — Flash has no price advantage at 1K/2K resolutions
+const DEFAULT_MODEL: ImageModel = "gemini-3-pro-image-preview";
+
+const RESOLUTION_OPTIONS: { value: ImageResolution; label: string; desc: string }[] = [
+  { value: "1k", label: "1K", desc: "Standard" },
+  { value: "2k", label: "2K", desc: "High Res" },
+];
+
 // ─── Sub-components ─────────────────────────────────────────────────────────
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -164,12 +172,21 @@ function SegmentedControl<T extends string | number>({
   );
 }
 
+// ─── Credit cost constants ───────────────────────────────────────────────────
+
+const CREDITS_PER_IMAGE: Record<string, number> = {
+  "1k": 7,
+  "2k": 10,
+};
+
 // ─── Props ──────────────────────────────────────────────────────────────────
 
 interface ImageStudioFormProps {
   onSubmit: (files: File[], productInfo: string, config: ImageConfig) => void;
   isSubmitting: boolean;
   isLocked: boolean;
+  creditBalance?: number;
+  isAdmin?: boolean;
 }
 
 // ─── Main Component ──────────────────────────────────────────────────────────
@@ -178,16 +195,26 @@ export function ImageStudioForm({
   onSubmit,
   isSubmitting,
   isLocked,
+  creditBalance,
+  isAdmin = false,
 }: ImageStudioFormProps) {
   const [files, setFiles] = useState<File[]>([]);
+  const selectedModel: ImageModel = DEFAULT_MODEL;
+  const [selectedResolution, setSelectedResolution] = useState<ImageResolution>("2k");
   const [selectedCategory, setSelectedCategory] = useState<ImageCategory | null>(null);
   const [additionalPrompt, setAdditionalPrompt] = useState("");
   const [productInfo, setProductInfo] = useState("");
   const [count, setCount] = useState<number>(4);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("1:1");
 
+  const estimatedCost = count * (CREDITS_PER_IMAGE[selectedResolution] ?? 7);
+  const hasInsufficientCredits =
+    !isAdmin &&
+    typeof creditBalance === "number" &&
+    creditBalance < estimatedCost;
+
   const canSubmit =
-    files.length > 0 && !isSubmitting && !isLocked;
+    files.length > 0 && !isSubmitting && !isLocked && !hasInsufficientCredits;
 
   const handleSubmit = useCallback(() => {
     if (!canSubmit) return;
@@ -196,9 +223,11 @@ export function ImageStudioForm({
       additional_prompt: additionalPrompt.trim(),
       count,
       aspect_ratio: aspectRatio,
+      model: selectedModel,
+      resolution: selectedResolution,
     };
     onSubmit(files, productInfo.trim(), config);
-  }, [canSubmit, files, selectedCategory, additionalPrompt, productInfo, count, aspectRatio, onSubmit]);
+  }, [canSubmit, files, selectedCategory, additionalPrompt, productInfo, count, aspectRatio, selectedResolution, onSubmit]);
 
   const textareaClass =
     "w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm placeholder:text-muted-foreground focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/30 disabled:cursor-not-allowed disabled:opacity-50 resize-none";
@@ -272,7 +301,7 @@ export function ImageStudioForm({
         </CardContent>
       </Card>
 
-      {/* Step 3 — Count + Ratio */}
+      {/* Step 4 — Count + Ratio + Resolution */}
       <Card className="border-gray-200 dark:border-gray-700 shadow-none">
         <CardContent className="pt-5 space-y-5">
           <SectionLabel>3. Output settings</SectionLabel>
@@ -310,10 +339,31 @@ export function ImageStudioForm({
               }}
             />
           </div>
+
+          <div className="space-y-2.5">
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              Resolution
+            </p>
+            <SegmentedControl
+              options={RESOLUTION_OPTIONS.map((r) => r.value)}
+              value={selectedResolution}
+              onChange={setSelectedResolution}
+              disabled={isSubmitting || isLocked}
+              renderOption={(v) => {
+                const opt = RESOLUTION_OPTIONS.find((r) => r.value === v)!;
+                return (
+                  <span className="flex flex-col items-center leading-tight">
+                    <span>{opt.label}</span>
+                    <span className="text-[10px] opacity-60">{opt.desc}</span>
+                  </span>
+                );
+              }}
+            />
+          </div>
         </CardContent>
       </Card>
 
-      {/* Step 4 — Optional text fields */}
+      {/* Step 5 — Optional text fields */}
       <Card className="border-gray-200 dark:border-gray-700 shadow-none">
         <CardContent className="pt-5 space-y-4">
           <SectionLabel>4. Additional details (optional)</SectionLabel>
@@ -357,37 +407,53 @@ export function ImageStudioForm({
       </Card>
 
       {/* Submit */}
-      <div className="flex items-center gap-4">
-        <Button
-          onClick={handleSubmit}
-          disabled={!canSubmit}
-          size="lg"
-          aria-busy={isSubmitting}
-          className="bg-amber-500 hover:bg-amber-600 text-white font-semibold shadow-sm"
-        >
-          {isSubmitting && (
-            <svg
-              className="mr-2 h-4 w-4 animate-spin"
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-            >
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-          )}
-          {isSubmitting
-            ? "Submitting…"
-            : isLocked
-            ? "Job Submitted"
-            : "Generate Images"}
-        </Button>
-        {!canSubmit && !isSubmitting && !isLocked && (
-          <p className="text-xs text-muted-foreground">
-            Upload at least one product photo to continue.
-          </p>
+      <div className="space-y-2.5">
+        {/* Cost preview */}
+        {!isLocked && (
+          hasInsufficientCredits ? (
+            <p className="text-xs font-medium text-red-600 dark:text-red-400">
+              Insufficient credits ({creditBalance} remaining, need {estimatedCost})
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {isAdmin
+                ? `Estimated cost: ${estimatedCost} credits (unlimited)`
+                : `Estimated cost: ${estimatedCost} credits`}
+            </p>
+          )
         )}
+        <div className="flex items-center gap-4">
+          <Button
+            onClick={handleSubmit}
+            disabled={!canSubmit}
+            size="lg"
+            aria-busy={isSubmitting}
+            className="bg-amber-500 hover:bg-amber-600 text-white font-semibold shadow-sm"
+          >
+            {isSubmitting && (
+              <svg
+                className="mr-2 h-4 w-4 animate-spin"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            )}
+            {isSubmitting
+              ? "Submitting…"
+              : isLocked
+              ? "Job Submitted"
+              : "Generate Images"}
+          </Button>
+          {!canSubmit && !isSubmitting && !isLocked && !hasInsufficientCredits && (
+            <p className="text-xs text-muted-foreground">
+              Upload at least one product photo to continue.
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );

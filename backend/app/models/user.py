@@ -15,6 +15,8 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(255))
     access_token: Mapped[str | None] = mapped_column(String(2048), default=None)
     refresh_token: Mapped[str | None] = mapped_column(String(2048), default=None)
+    credit_balance: Mapped[int] = mapped_column(default=100)
+    credits_used: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()

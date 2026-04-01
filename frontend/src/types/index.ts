@@ -2,6 +2,9 @@ export interface User {
   google_id: string;
   email: string;
   name: string;
+  is_admin?: boolean;
+  credit_balance?: number;
+  credits_used?: number;
 }
 
 export interface DriveFolder {
@@ -38,11 +41,17 @@ export type ImageCategory = "white_bg" | "scene" | "model" | "detail";
 
 export type AspectRatio = "1:1" | "3:4" | "4:3";
 
+export type ImageModel = "gemini-3-pro-image-preview" | "gemini-3.1-flash-image-preview";
+
+export type ImageResolution = "1k" | "2k";
+
 export interface ImageConfig {
   category: ImageCategory | null;
   additional_prompt: string;
   count: number;
   aspect_ratio: AspectRatio;
+  model: ImageModel;
+  resolution: ImageResolution;
 }
 
 export interface Job {
@@ -56,6 +65,7 @@ export interface Job {
   stage_name: string;
   image_urls: string[] | null;
   result: Record<string, unknown> | null;
+  prompts?: Record<string, string>;
   error_message: string | null;
   cost_usd: number;
   created_at: string;
