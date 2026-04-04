@@ -84,12 +84,15 @@ async def callback(request: Request, code: str | None = None) -> RedirectRespons
             if refresh_token:
                 user.refresh_token = refresh_token
         else:
+            email = user_info.get("email", "")
+            initial_credits = 1000 if settings.is_admin(email) else 100
             user = User(
                 google_id=user_info["id"],
-                email=user_info.get("email", ""),
+                email=email,
                 name=user_info.get("name", ""),
                 access_token=access_token,
                 refresh_token=refresh_token,
+                credit_balance=initial_credits,
             )
             db.add(user)
         db.commit()
