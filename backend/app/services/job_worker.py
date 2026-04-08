@@ -349,15 +349,11 @@ async def _run_batch_image_generation(
                 ),
             )
 
-            # Save image to persistent storage
+            # Save image to storage
             safe_type = entry.type_en.replace("/", "_").replace(" ", "_")
             filename = f"{product_id}_{safe_type}_{i+1}.png"
-            image_path = output_dir / filename
-            image_path.write_bytes(image_bytes)
-
-            # Build stable URL
-            rel = image_path.relative_to(storage_job_dir)
-            url = f"/api/images/{job_id}/{str(rel).replace(chr(92), '/')}"
+            storage_filename = f"generated_{resolution}/{filename}"
+            url = storage.store_file(job_id, storage_filename, image_bytes)
             image_urls.append(url)
             generated += 1
 

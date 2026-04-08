@@ -36,7 +36,7 @@ function createMinimalPng(): Buffer {
 // Tests
 // ---------------------------------------------------------------------------
 
-test.describe("Upload flow", () => {
+test.describe.skip("Upload flow — skipped: Full Listing is hidden (Coming Soon)", () => {
   test.beforeEach(async ({ page }) => {
     // Mock auth so the Login link is visible (not redirected)
     // The home page doesn't require auth, but /api/auth/me is called

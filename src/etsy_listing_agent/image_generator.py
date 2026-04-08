@@ -30,7 +30,8 @@ from google.genai import types
 logger = logging.getLogger(__name__)
 
 # Gemini model used for image generation (DEC-001)
-_IMAGE_MODEL = "gemini-3.1-flash-image-preview"
+_IMAGE_MODEL = "gemini-3-pro-image-preview"
+_IMAGE_MODEL_FLASH = "gemini-3.1-flash-image-preview"
 
 # Terminal states for a Gemini Batch job
 _BATCH_TERMINAL_STATES = {
@@ -91,8 +92,9 @@ def parse_nanobanana_json(file_path: Path) -> list[PromptEntry]:
 def generate_image_gemini(
     prompt: str,
     reference_image_paths: list[str] | None = None,
-    resolution: str = "1k",
+    resolution: str = "2k",
     api_key: str | None = None,
+    model: str | None = None,
 ) -> bytes:
     """Generate a single image using the synchronous Gemini API.
 
@@ -105,6 +107,7 @@ def generate_image_gemini(
         reference_image_paths: Optional list of local reference image paths.
         resolution: "1k", "2k", or "4k" — mapped to Gemini ImageConfig sizes.
         api_key: Gemini API key (falls back to GEMINI_API_KEY env var).
+        model: Gemini model name (falls back to _IMAGE_MODEL if None).
 
     Returns:
         Raw PNG bytes of the generated image.
@@ -115,6 +118,8 @@ def generate_image_gemini(
     api_key = api_key or os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("GEMINI_API_KEY not set")
+
+    resolved_model = model if model is not None else _IMAGE_MODEL
 
     client = genai.Client(
         api_key=api_key,
@@ -135,7 +140,7 @@ def generate_image_gemini(
     contents.append(prompt)
 
     response = client.models.generate_content(
-        model=_IMAGE_MODEL,
+        model=resolved_model,
         contents=contents,
         config=types.GenerateContentConfig(
             response_modalities=["TEXT", "IMAGE"],
@@ -213,6 +218,7 @@ def submit_image_batch(
     resolution: str = "1k",
     api_key: str | None = None,
     display_name: str = "etsy-listing-agent-batch",
+    model: str | None = None,
 ) -> str:
     """Submit all prompt entries as a single Gemini Batch job.
 
@@ -222,6 +228,7 @@ def submit_image_batch(
         resolution: Image resolution — "1k", "2k", or "4k".
         api_key: Gemini API key (falls back to GEMINI_API_KEY env var).
         display_name: Human-readable name for the batch job.
+        model: Gemini model name (falls back to _IMAGE_MODEL if None).
 
     Returns:
         The batch job name (e.g. "batches/abc123") used to poll for results.
@@ -233,6 +240,8 @@ def submit_image_batch(
     api_key = api_key or os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("GEMINI_API_KEY not set")
+
+    resolved_model = model if model is not None else _IMAGE_MODEL
 
     client = genai.Client(
         api_key=api_key,
@@ -247,11 +256,11 @@ def submit_image_batch(
     logger.info(
         "Submitting Gemini batch with %d image requests (model=%s)",
         len(inline_requests),
-        _IMAGE_MODEL,
+        resolved_model,
     )
 
     batch_job = client.batches.create(
-        model=_IMAGE_MODEL,
+        model=resolved_model,
         src=inline_requests,
         config={"display_name": display_name},
     )
@@ -464,6 +473,7 @@ def generate_images_for_product(
     api_key: str | None = None,
     use_batch: bool = True,
     poll_interval: float = _POLL_INTERVAL_SECONDS,
+    model: str | None = None,
 ) -> dict[str, Any]:
     """Generate all images for a product using the Gemini Batch API.
 
@@ -481,6 +491,7 @@ def generate_images_for_product(
         api_key: Gemini API key (falls back to GEMINI_API_KEY env var).
         use_batch: Use Batch API (default True).  Set False for sync mode.
         poll_interval: Seconds between batch status polls.
+        model: Gemini model name (falls back to _IMAGE_MODEL if None).
 
     Returns:
         Result dict with keys: success, output_dir, generated, failed.
@@ -522,6 +533,7 @@ def generate_images_for_product(
             resolution=resolution,
             api_key=api_key,
             poll_interval=poll_interval,
+            model=model,
         )
     else:
         return _generate_images_sync(
@@ -531,6 +543,7 @@ def generate_images_for_product(
             output_dir=output_dir,
             resolution=resolution,
             api_key=api_key,
+            model=model,
         )
 
 
@@ -542,6 +555,7 @@ def _generate_images_batch(
     resolution: str,
     api_key: str | None,
     poll_interval: float,
+    model: str | None = None,
 ) -> dict[str, Any]:
     """Internal: submit batch + poll + collect results (synchronous)."""
     try:
@@ -551,6 +565,7 @@ def _generate_images_batch(
             resolution=resolution,
             api_key=api_key,
             display_name=f"etsy-agent-{product_id}",
+            model=model,
         )
 
         batch_job = poll_batch_until_done(
@@ -589,6 +604,7 @@ def _generate_images_sync(
     output_dir: Path,
     resolution: str,
     api_key: str | None,
+    model: str | None = None,
 ) -> dict[str, Any]:
     """Internal: legacy per-image synchronous generation (fallback)."""
     results: dict[str, Any] = {
@@ -626,6 +642,7 @@ def _generate_images_sync(
                 reference_image_paths=ref_paths if ref_paths else None,
                 resolution=resolution,
                 api_key=api_key,
+                model=model,
             )
 
             safe_title = entry.type_en.replace("/", "_").replace(" ", "_")

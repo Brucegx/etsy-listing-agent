@@ -12,7 +12,6 @@ SCOPES = [
     "openid",
     "email",
     "profile",
-    "https://www.googleapis.com/auth/drive.readonly",
 ]
 
 

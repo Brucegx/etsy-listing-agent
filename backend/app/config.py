@@ -33,6 +33,25 @@ class Settings(BaseSettings):
     smtp_from_email: str = ""
     smtp_app_password: str = ""
 
+    # Cloudflare R2 (S3-compatible object storage)
+    r2_endpoint_url: str = ""
+    r2_access_key_id: str = ""
+    r2_secret_access_key: str = ""
+    r2_bucket_name: str = ""
+    r2_public_url: str = ""
+
+    # Cross-domain auth (production)
+    cookie_domain: str = ""
+
+    # Additional CORS origins (comma-separated)
+    extra_cors_origins: str = ""
+
+    # Login whitelist (comma-separated emails; empty = allow all)
+    allowed_emails: str = ""
+
+    # Admin whitelist (comma-separated emails; empty = no admins)
+    admin_emails: str = ""
+
     # Logging
     log_level: str = "INFO"
 
@@ -40,6 +59,13 @@ class Settings(BaseSettings):
     rate_limit_api_key_rpm: int = 60
     rate_limit_user_rpm: int = 30
     rate_limit_anon_rpm: int = 10
+
+    def is_admin(self, email: str) -> bool:
+        """Return True if the given email is in the admin whitelist."""
+        if not self.admin_emails:
+            return False
+        admins = {e.strip().lower() for e in self.admin_emails.split(",") if e.strip()}
+        return email.lower() in admins
 
     model_config = {"env_file": ".env"}
 

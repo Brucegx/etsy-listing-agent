@@ -26,7 +26,7 @@ import {
 // Dashboard tests
 // ---------------------------------------------------------------------------
 
-test.describe("Drive flow — authentication gate", () => {
+test.describe.skip("Drive flow — authentication gate — skipped: Drive feature hidden", () => {
   test("unauthenticated users are redirected from /dashboard to /", async ({
     unauthPage: page,
   }) => {
@@ -38,7 +38,7 @@ test.describe("Drive flow — authentication gate", () => {
   });
 });
 
-test.describe("Drive flow — dashboard", () => {
+test.describe.skip("Drive flow — dashboard — skipped: Drive feature hidden", () => {
   test.beforeEach(async ({ authedPage: page }) => {
     await mockDriveFolders(page);
     await mockDriveFiles(page);
@@ -87,7 +87,7 @@ test.describe("Drive flow — dashboard", () => {
 // Drive browser interaction
 // ---------------------------------------------------------------------------
 
-test.describe("Drive flow — folder selection and product list", () => {
+test.describe.skip("Drive flow — folder selection — skipped: Drive feature hidden", () => {
   test("selecting a Drive folder shows product list", async ({
     authedPage: page,
   }) => {
@@ -202,7 +202,7 @@ test.describe("Drive flow — folder selection and product list", () => {
 // Product page tests
 // ---------------------------------------------------------------------------
 
-test.describe("Drive flow — product generation page", () => {
+test.describe.skip("Drive flow — product generation — skipped: Drive feature hidden", () => {
   test("product page shows product id and Generate button", async ({
     authedPage: page,
   }) => {

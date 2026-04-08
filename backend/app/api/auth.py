@@ -30,6 +30,20 @@ def _verify_session(cookie: str) -> str | None:
         return google_id
     return None
 
+def _cookie_params(is_prod: bool) -> dict:
+    """Return cookie kwargs for production (cross-domain) or local dev."""
+    params: dict = {"httponly": True}
+    if is_prod:
+        params["secure"] = True
+        params["samesite"] = "none"
+        if settings.cookie_domain:
+            params["domain"] = settings.cookie_domain
+    else:
+        params["secure"] = False
+        params["samesite"] = "lax"
+    return params
+
+
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
@@ -52,6 +66,13 @@ async def callback(request: Request, code: str | None = None) -> RedirectRespons
 
     user_info = await get_user_info(access_token)
 
+    # Email whitelist check
+    if settings.allowed_emails:
+        allowed = {e.strip().lower() for e in settings.allowed_emails.split(",") if e.strip()}
+        email = user_info.get("email", "").lower()
+        if email not in allowed:
+            raise HTTPException(status_code=403, detail="Access denied")
+
     # Upsert user in DB
     db = get_db()
     try:
@@ -63,12 +84,15 @@ async def callback(request: Request, code: str | None = None) -> RedirectRespons
             if refresh_token:
                 user.refresh_token = refresh_token
         else:
+            email = user_info.get("email", "")
+            initial_credits = 1000 if settings.is_admin(email) else 100
             user = User(
                 google_id=user_info["id"],
-                email=user_info.get("email", ""),
+                email=email,
                 name=user_info.get("name", ""),
                 access_token=access_token,
                 refresh_token=refresh_token,
+                credit_balance=initial_credits,
             )
             db.add(user)
         db.commit()
@@ -76,22 +100,19 @@ async def callback(request: Request, code: str | None = None) -> RedirectRespons
         db.close()
 
     is_prod = bool(settings.google_client_id)
+    cookie_kwargs = _cookie_params(is_prod)
     redirect = RedirectResponse(url=settings.frontend_url, status_code=302)
     redirect.set_cookie(
         key="session",
         value=_sign_session(user_info["id"]),
-        httponly=True,
-        secure=is_prod,
-        samesite="lax",
         max_age=7 * 24 * 3600,
+        **cookie_kwargs,
     )
     redirect.set_cookie(
         key="access_token",
         value=access_token,
-        httponly=True,
-        secure=is_prod,
-        samesite="lax",
         max_age=3600,  # 1 hour, matches Google token expiry
+        **cookie_kwargs,
     )
     return redirect
 
@@ -116,7 +137,14 @@ async def me(request: Request) -> dict:
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
 
-    return {"google_id": user.google_id, "email": user.email, "name": user.name}
+    return {
+        "google_id": user.google_id,
+        "email": user.email,
+        "name": user.name,
+        "is_admin": settings.is_admin(user.email),
+        "credit_balance": user.credit_balance,
+        "credits_used": user.credits_used,
+    }
 
 
 @router.get("/dev-login")
@@ -140,12 +168,13 @@ async def dev_login() -> RedirectResponse:
     finally:
         db.close()
 
+    cookie_kwargs = _cookie_params(is_prod=False)
     redirect = RedirectResponse(url=settings.frontend_url, status_code=302)
     redirect.set_cookie(
-        key="session", value=_sign_session("dev_user"), httponly=True, samesite="lax", max_age=7 * 24 * 3600,
+        key="session", value=_sign_session("dev_user"), max_age=7 * 24 * 3600, **cookie_kwargs,
     )
     redirect.set_cookie(
-        key="access_token", value="dev_token", httponly=True, samesite="lax", max_age=3600,
+        key="access_token", value="dev_token", max_age=3600, **cookie_kwargs,
     )
     return redirect
 
@@ -153,7 +182,15 @@ async def dev_login() -> RedirectResponse:
 @router.post("/logout")
 async def logout(request: Request) -> RedirectResponse:
     """Clear session and access_token cookies."""
+    is_prod = bool(settings.google_client_id)
+    delete_kwargs: dict = {}
+    if is_prod:
+        delete_kwargs["secure"] = True
+        delete_kwargs["samesite"] = "none"
+        if settings.cookie_domain:
+            delete_kwargs["domain"] = settings.cookie_domain
+
     redirect = RedirectResponse(url=settings.frontend_url, status_code=302)
-    redirect.delete_cookie("session")
-    redirect.delete_cookie("access_token")
+    redirect.delete_cookie("session", **delete_kwargs)
+    redirect.delete_cookie("access_token", **delete_kwargs)
     return redirect
